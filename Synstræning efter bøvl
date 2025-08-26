@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>Samsyn Trainer — PreSwap LKG (HardFix v1.0.2)</title>
+<meta name="theme-color" content="#0b0b0b"/>
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:#0b0b0b;color:#eee;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;overflow:hidden}
+  .app{min-height:100%;display:flex;flex-direction:column}
+  .header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #222;background:#111;gap:12px}
+  .brand{display:flex;align-items:center;gap:10px}
+  .logo{width:22px;height:22px;border-radius:8px;background:linear-gradient(135deg,#ef4444,#22c55e)}
+  .meta{display:flex;flex-direction:column}
+  .meta .t{font-weight:700;font-size:14px}
+  .meta .s{opacity:.7;font-size:11px}
+  .chan{display:flex;align-items:center;gap:8px;background:#121212;border:1px solid #222;border-radius:12px;padding:6px 8px}
+  .chan label{opacity:.75;font-size:12px}
+  .progress{height:8px;background:#1c1c1c;border-radius:6px;overflow:hidden;margin:8px 12px}
+  .bar{height:100%;width:0%;background:linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)}
+  .hud{display:flex;justify-content:space-between;align-items:center;font-size:12px;opacity:.85;padding:0 12px}
+  .stageWrap{position:relative;flex:1;margin:10px 12px;border:1px solid #222;border-radius:16px;overflow:hidden;background:#000;contain:layout paint size}
+  #stage{display:block;width:100%;height:100%}
+  .ui{position:absolute;left:12px;right:12px;bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;z-index:3}
+  .panel{display:flex;gap:8px;align-items:center;background:rgba(17,17,17,.85);border:1px solid #333;border-radius:12px;padding:8px 10px}
+  .info{background:rgba(17,17,17,.85);border:1px dashed #444;border-radius:12px;padding:8px 10px;font-size:12px;opacity:.9}
+  .footer{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-top:1px solid #222}
+  .btn{cursor:pointer;border:1px solid #2a2a2a;background:#1b1b1b;color:#eee;border-radius:12px;padding:8px 12px;font-size:14px}
+  .btn:hover{background:#2a2a2a}
+  .build{position:fixed;left:8px;bottom:8px;font-size:11px;background:#111;border:1px solid #333;color:#9ca3af;border-radius:10px;padding:4px 8px;z-index:9}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="brand"><div class="logo"></div><div class="meta"><div class="t">Samsyn Trainer — PreSwap LKG</div><div class="s">HardFix v1.0.2 • Canvas‑only</div></div></div>
+    <div class="chan">
+      <label>R</label><input id="rChan" type="range" min="0" max="1.2" step="0.02" value="1.0"/>
+      <label>G</label><input id="gChan" type="range" min="0" max="1.2" step="0.02" value="0.7"/>
+    </div>
+  </div>
+  <div class="progress"><div id="bar" class="bar"></div></div>
+  <div class="hud"><span id="elapsed">0:00 / 10:00</span><span id="title">Kalibrering</span></div>
+  <div class="stageWrap"><canvas id="stage"></canvas><div id="ui" class="ui"></div></div>
+  <div class="footer">
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn" id="pauseBtn">Pause</button>
+      <button class="btn" id="prevBtn">Tilbage</button>
+      <button class="btn" id="skipBtn">Spring over</button>
+    </div>
+    <div class="s" style="opacity:.7">PreSwap LKG HardFix</div>
+  </div>
+</div>
+<div class="build">PreSwap LKG — HardFix v1.0.2</div>
+<script>
+(function(){
+  'use strict';
+  // ===== Robust error reporting (ingen sort skærm) =====
+  function overlay(msg){ try{ const d=document.createElement('div'); d.style.cssText='position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.92);z-index:999'; const pre=document.createElement('pre'); pre.style.cssText='max-width:90ch;padding:12px;background:#111;border:1px solid #333;border-radius:12px;color:#fff;white-space:pre-wrap'; pre.textContent='['+new Date().toISOString()+'] '+msg; d.appendChild(pre); document.body.appendChild(d);}catch(_){} }
+  window.addEventListener('error', e=>overlay(e.message||'Ukendt fejl'));
+  window.addEventListener('unhandledrejection', e=>overlay('Promise: '+(e.reason&&e.reason.message||e.reason)));
+
+  // ===== Elements =====
+  const canvas=document.getElementById('stage');
+  const ctx=canvas.getContext('2d');
+  const ui=document.getElementById('ui');
+  function uiClear(){ ui.innerHTML=''; }
+  const rSl=document.getElementById('rChan');
+  const gSl=document.getElementById('gChan');
+
+  // ===== Helpers =====
+  function clamp(x,a,b){ return Math.min(b, Math.max(a, x)); }
+  let rChan=clamp(parseFloat(rSl && rSl.value) || 1.0, 0, 1.2);
+  let gChan=clamp(parseFloat(gSl && gSl.value) || 0.7, 0, 1.2);
+  if(rSl) rSl.addEventListener('input', ()=>{ rChan=clamp(parseFloat(rSl.value)||1.0,0,1.2); });
+  if(gSl) gSl.addEventListener('input', ()=>{ gChan=clamp(parseFloat(gSl.value)||0.7,0,1.2); });
+
+  function resize(){ const rect=canvas.parentElement.getBoundingClientRect(); const w=Math.max(2, Math.round(rect.width)); const h=Math.max(2, Math.round(rect.height)); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; /* style via CSS 100% */ } }
+  window.addEventListener('resize', resize, {passive:true}); resize();
+  function chw(){ return { w:canvas.width, h:canvas.height }; }
+  function clearStage(){ ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height); }
+
+  // UI builders
+  function panel(){ const d=document.createElement('div'); d.className='panel'; ui.appendChild(d); return d; }
+  function uiInfo(text){ const d=document.createElement('div'); d.className='info'; d.textContent=text; ui.appendChild(d); }
+  function uiButton(label,on){ const p=panel(); const b=document.createElement('button'); b.textContent=label; b.className='btn'; b.onclick=on; p.appendChild(b); return b; }
+  function uiSlider(label,min,max,step,val,on){ const p=panel(); const s=document.createElement('span'); s.textContent=label; s.style.fontSize='12px'; s.style.opacity='.9'; const i=document.createElement('input'); i.type='range'; i.min=min; i.max=max; i.step=step; i.value=val; i.oninput=()=> on(parseFloat(i.value)); p.append(s,i); return i; }
+
+  // ===== Diagnostics (draw heartbeat so we SEE frames) =====
+  let ticks=0; function diag(){ ctx.fillStyle='rgba(255,255,255,.75)'; ctx.font='12px system-ui,-apple-system,Segoe UI,Roboto,sans-serif'; ctx.fillText('tick '+(ticks++), 8, 16); }
+
+  // ===== Exercises (pre-swap state) =====
+  const ExCal={ name:'Kalibrering', secs:50,
+    init(){ uiClear(); uiInfo('Kalibrering: Brug R/G i topbaren (slå True Tone/Night Shift fra).'); },
+    frame(t){ clearStage(); const {w,h}=chw(); const m=Math.min(w,h); // draw R/G letters
+      const sep=m*0.22; const px=Math.floor(m*0.16);
+      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=px+'px system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
+      ctx.globalAlpha=rChan; ctx.fillStyle='#ff0000'; ctx.fillText('R', w/2 - sep, h/2);
+      ctx.globalAlpha=gChan; ctx.fillStyle='#00ff00'; ctx.fillText('G', w/2 + sep, h/2);
+      ctx.globalAlpha=1; ctx.fillStyle='rgba(255,255,255,.8)'; ctx.font=Math.floor(m*0.04)+'px system-ui,-apple-system,Segoe UI,Roboto,sans-serif'; ctx.fillText('Juster til minimalt farve‑bleed', w/2, h*0.86); diag(); }
+  };
+
+  const ExFig8={ name:'8‑taller (samsyn & pursuit)', secs:120,
+    init(){ uiClear(); this.period=6; this.switchEvery=3; this.lastSwitch=0; this.eye='red'; this.dir=1; uiSlider('Periode (s)',2,10,0.1,this.period,v=>this.period=v); uiSlider('Øje‑skift (s)',1,6,0.1,this.switchEvery,v=>this.switchEvery=v); uiButton('Skift retning',()=>{ this.dir*=-1; }); },
+    frame(t){ clearStage(); const {w,h}=chw(); const m=Math.min(w,h); const amp=m*0.36; const x=Math.sin(this.dir*t*2*Math.PI/this.period); const y=0.5*Math.sin(this.dir*2*t*2*Math.PI/this.period); const px=w/2 + x*amp; const py=h/2 + y*amp; const r=m*0.03; ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.closePath(); ctx.globalAlpha=(this.eye==='red'? rChan:0); ctx.fillStyle='#ff0000'; ctx.fill(); ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.closePath(); ctx.globalAlpha=(this.eye==='green'? gChan:0); ctx.fillStyle='#00ff00'; ctx.fill(); ctx.globalAlpha=1; if(!this.lastSwitch) this.lastSwitch=t; if(t - this.lastSwitch > this.switchEvery){ this.eye=(this.eye==='red')?'green':'red'; this.lastSwitch=t; } diag(); }
+  };
+
+  const ExAcMono={ name:'Akkom‑rock (mono)', secs:120,
+    init(){ uiClear(); this.period=2.5; this.phase=0; this.last=0; this.fixedEye='red'; this.near=1.45; this.far=0.82; uiSlider('Skifte (s)',0.8,4,0.1,this.period,v=>this.period=v); const p=panel(); const s=document.createElement('span'); s.textContent='Øje:'; s.style.fontSize='12px'; s.style.opacity='.9'; const br=document.createElement('button'); br.textContent='Rød'; br.className='btn'; br.onclick=()=> this.fixedEye='red'; const bg=document.createElement('button'); bg.textContent='Grøn'; bg.className='btn'; bg.onclick=()=> this.fixedEye='green'; p.append(s,br,bg); uiSlider('Nær (str.)',1.0,2.2,0.01,this.near,v=>this.near=v); uiSlider('Fjern (str.)',0.6,1.4,0.01,this.far,v=>this.far=v); },
+    frame(t){ clearStage(); const {w,h}=chw(); const m=Math.min(w,h); if(!this.last) this.last=t; if(t - this.last > this.period){ this.last=t; this.phase=this.phase?0:1; } const size=(this.phase===0? this.near:this.far); const eye=this.fixedEye; const alpha=(eye==='red'? rChan:gChan); const color=(eye==='red'? '#ff0000':'#00ff00'); ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=Math.floor(m*size*0.11)+'px system-ui,-apple-system,Segoe UI,Roboto,sans-serif'; ctx.globalAlpha=alpha; ctx.fillStyle=color; ctx.fillText('FOKUS', w/2, h/2); ctx.globalAlpha=1; diag(); }
+  };
+
+  const ExHart={ name:'Hart‑Chart (Near↔Far)', secs:120,
+    init(){ uiClear(); this.period=1.6; this.last=0; this.phase='far'; this.letters='ABCDEFGHJKLMNPQRSTUVWXYZ'; this.cols=5; this.rows=5; this.grid=[]; for(let r=0;r<this.rows;r++){ const row=[]; for(let c=0;c<this.cols;c++){ row.push(this.letters[Math.floor(Math.random()*this.letters.length)]); } this.grid.push(row); } },
+    frame(t){ clearStage(); const {w,h}=chw(); const cols=this.cols, rows=this.rows; const cell=Math.min(w*0.14,h*0.14); const startX=(w - cols*cell)/2; const startY=(h - rows*cell)/2; if(!this.last) this.last=t; if(t - this.last > this.period){ this.last=t; this.phase=(this.phase==='far')?'near':'far'; } const sepNear=cell*0.12, sepFar=cell*0.06; const sep=(this.phase==='near'? sepNear:sepFar); ctx.textAlign='center'; ctx.textBaseline='middle'; for(let r=0;r<rows;r++){ for(let c=0;c<cols;c++){ const ch=this.grid[r][c]; const cx=startX + c*cell + cell/2; const cy=startY + r*cell + cell/2; const fontPx=Math.floor(cell*0.6); ctx.font=fontPx+'px system-ui,-apple-system,Segoe UI,Roboto,sans-serif'; ctx.lineWidth=Math.max(2, Math.floor(cell*0.08)); ctx.strokeStyle='#000'; ctx.globalAlpha=rChan; ctx.fillStyle='#ff0000'; ctx.strokeText(ch, cx - sep, cy); ctx.fillText(ch, cx - sep, cy); ctx.globalAlpha=gChan; ctx.fillStyle='#00ff00'; ctx.strokeText(ch, cx + sep, cy); ctx.fillText(ch, cx + sep, cy); ctx.globalAlpha=1; } } diag(); }
+  };
+
+  const ExStar={ name:'Deakkom 3D — Starfield', secs:120,
+    init(){ uiClear(); this.dots=[]; this.n=180; this.sep=10; for(let i=0;i<this.n;i++){ this.dots.push({x:Math.random(), y:Math.random(), z:Math.random()}); } },
+    frame(t){ clearStage(); const {w,h}=chw(); const m=Math.min(w,h); const d=this.sep; for(const p of this.dots){ const x=p.x*w, y=p.y*h; const sz=(0.5+p.z*1.2)*(m*0.003); ctx.globalAlpha=rChan; ctx.fillStyle='#ff0000'; ctx.beginPath(); ctx.arc(x-d,y,sz,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=gChan; ctx.fillStyle='#00ff00'; ctx.beginPath(); ctx.arc(x+d,y,sz,0,Math.PI*2); ctx.fill(); } ctx.globalAlpha=1; diag(); }
+  };
+
+  const ExCool={ name:'Afslapning', secs:40,
+    init(){ uiClear(); uiInfo('Afslapning: Luk øjne 20–30 sek, rolige vejrtrækninger.'); },
+    frame(){ clearStage(); const {w,h}=chw(); ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='#fff'; ctx.globalAlpha=.9; ctx.font=Math.floor(Math.min(w,h)*0.06)+'px system-ui,-apple-system,Segoe UI,Roboto,sans-serif'; ctx.fillText('Afslapning – luk øjne, rolige vejrtrækninger', w/2, h/2); ctx.globalAlpha=1; diag(); }
+  };
+
+  const plan=[ExCal,ExFig8,ExAcMono,ExHart,ExStar,ExCool];
+
+  // ===== Engine =====
+  const bar=document.getElementById('bar'); const elapsed=document.getElementById('elapsed'); const title=document.getElementById('title');
+  let i=0, started=false, paused=false, t0=0, tEx=0; const total=plan.reduce((s,p)=>s+p.secs,0);
+  function fmt(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60), r=s%60; return m+':'+String(r).padStart(2,'0'); }
+  function updateHud(){ const gone=plan.slice(0,i).reduce((s,p)=>s+p.secs,0)+Math.min(tEx,plan[i].secs); bar.style.width=(100*gone/total).toFixed(1)+'%'; elapsed.textContent=fmt(gone)+' / '+fmt(total); title.textContent=plan[i].name; }
+  function next(){ i=Math.min(plan.length-1, i+1); tEx=0; uiClear(); plan[i].init(); }
+  function prev(){ i=Math.max(0, i-1); tEx=0; uiClear(); plan[i].init(); }
+  const pauseBtn=document.getElementById('pauseBtn');
+  if(pauseBtn) pauseBtn.onclick=()=>{ paused=!paused; pauseBtn.textContent=paused?'Fortsæt':'Pause'; };
+  const skipBtn=document.getElementById('skipBtn'); if(skipBtn) skipBtn.onclick=next;
+  const prevBtn=document.getElementById('prevBtn'); if(prevBtn) prevBtn.onclick=prev;
+
+  function loop(now){
+    try{
+      if(!started){ t0=now; started=true; uiClear(); plan[i].init(); }
+      const dt=(now-t0)/1000; t0=now; if(!paused){ tEx+=dt; if(tEx>=plan[i].secs){ next(); } }
+      resize();
+      plan[i].frame(tEx);
+      updateHud();
+    }catch(e){ clearStage(); ctx.fillStyle='#fff'; ctx.font='14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif'; ctx.fillText('Fejl: '+(e&&e.message||e), 16, 22); }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
