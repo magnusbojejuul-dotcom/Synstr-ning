@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Samsyn Trainer — Vanilla v2.0 (no Tailwind)</title>
+  <meta name="theme-color" content="#0a0a0a"/>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
+  <style>
+    /* ====== Base styles (no Tailwind) ====== */
+    *,*::before,*::after{box-sizing:border-box}
+    html,body,#root{height:100%}
+    body{margin:0;background:#0a0a0a;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .app{min-height:100%;display:flex;flex-direction:column}
+    .header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #262626;background:#0d0d0d;gap:12px}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand-logo{width:32px;height:32px;border-radius:14px;background:linear-gradient(135deg,#ef4444,#22c55e)}
+    .brand-meta{display:flex;flex-direction:column;gap:2px}
+    .brand-title{font-weight:600;font-size:15px}
+    .brand-sub{opacity:.7;font-size:11px}
+    .toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .chan{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid #262626;border-radius:14px;background:#121212}
+    .chan label{opacity:.7;font-size:12px}
+    input[type=range]{height:28px}
+    .btn{cursor:pointer;border:1px solid #262626;border-radius:14px;background:#262626;color:#f5f5f5;padding:10px 14px;font-size:14px}
+    .btn:hover{background:#404040}
+    .btn--primary{background:#1d4ed8;border-color:#1d4ed8}
+    .btn--primary:hover{background:#2563eb}
+    .btn--ghost{background:#121212}
+    .container{padding:10px 16px}
+    .progress{height:12px;border-radius:8px;background:#262626;overflow:hidden}
+    .progress-bar{height:100%;background:linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)}
+    .progress-meta{display:flex;align-items:center;justify-content:space-between;opacity:.7;font-size:12px;margin-top:4px}
+    .main{display:grid;grid-template-rows:1fr auto;flex:1}
+    .stage{height:70vh;min-height:420px;border:1px solid #262626;border-radius:18px;overflow:hidden}
+    .section{padding:16px}
+    .footer{border-top:1px solid #262626;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:10px 16px}
+    .card{background:#0b0b0b;border:1px solid #262626;border-radius:18px;padding:16px}
+    .center{display:flex;align-items:center;justify-content:center}
+    .hstack{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .control-grid{display:grid;grid-template-columns:repeat(1,minmax(0,1fr));gap:12px}
+    @media (min-width: 768px){.control-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}
+    .title{font-weight:600;font-size:clamp(16px,2.2vw,22px)}
+    .sub{opacity:.8;font-size:13px}
+    .ghost{opacity:.7;font-size:12px}
+    .ball{width:clamp(22px,3.6vw,40px);height:clamp(22px,3.6vw,40px);border-radius:9999px;position:absolute;will-change:transform;box-shadow:inset 0 0 0 2px #000}
+    .err{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.85);color:#fff;z-index:99999;padding:16px}
+    .err pre{max-width:900px;white-space:pre-wrap;word-break:break-word;background:#111;padding:12px;border-radius:12px;border:1px solid #333}
+    /* Anti-crosstalk rendering */
+    .stage, .stage *{ -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
+    canvas{ image-rendering: pixelated; image-rendering: crisp-edges; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="err" class="err"><pre id="errtxt"></pre></div>
+  <script>
+    // Global error overlay + minimal polyfills
+    (function(){
+      function show(msg){ var box=document.getElementById('err'); var p=document.getElementById('errtxt'); var ts=new Date().toISOString(); p.textContent='['+ts+'] '+msg; box.style.display='grid'; }
+      window.addEventListener('error', function(e){ show((e && e.message)||'Ukendt script-fejl'); });
+      window.addEventListener('unhandledrejection', function(e){ show('Promise-fejl: '+(e.reason && (e.reason.stack||e.reason.message||e.reason))); });
+      if (typeof window.ResizeObserver === 'undefined') {
+        window.ResizeObserver = class { constructor(cb){ this.cb=cb; this.h=()=> cb([]);} observe(){ window.addEventListener('resize', this.h, {passive:true}); } disconnect(){ window.removeEventListener('resize', this.h); } };
+      }
+    })();
+  </script>
+  <script type="text/babel">
+    const BUILD = '2.0.1-vanilla';
+    const { useState, useEffect, useRef } = React;
+
+    // Utils
+    const TODAY = ()=> new Date().toISOString().slice(0,10);
+    const TODAY_KEY=()=>`svt_session_${TODAY()}`;
+    const HIST_KEY='svt_history';
+    const STREAK_KEY='svt_streak';
+    const store={ get(k,f){ try{const v=localStorage.getItem(k);return v?JSON.parse(v):f;}catch{return f;}}, set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} } };
+    const fmtMMSS = (sec)=>{ const s=Math.max(0,Math.round(sec)); const m=Math.floor(s/60); const r=s%60; return `${m}:${r.toString().padStart(2,'0')}`; };
+    const median = (arr)=>{ if(!arr.length) return null; const a=[...arr].sort((x,y)=>x-y); const m=Math.floor(a.length/2); return a.length%2? a[m] : Math.round((a[m-1]+a[m])/2); };
+
+    function useCountdown(seconds,{isRunning,onComplete}){
+      const [remaining,setRemaining]=useState(seconds);
+      const startRef=useRef(null); const rafRef=useRef(null); const tmoRef=useRef(null); const doneRef=useRef(false);
+      useEffect(()=>{ if(!isRunning) return; doneRef.current=false; if(!startRef.current) startRef.current=performance.now(); const base=startRef.current; const finish=()=>{ if(doneRef.current) return; doneRef.current=true; try{cancelAnimationFrame(rafRef.current)}catch{}; try{clearTimeout(tmoRef.current)}catch{}; onComplete&&onComplete(); };
+        const tick=(ts)=>{ const left=Math.max(0, seconds-((ts-base)/1000)); setRemaining(left); if(left<=0){ finish(); return;} rafRef.current=requestAnimationFrame(tick); };
+        rafRef.current=requestAnimationFrame(tick); tmoRef.current=setTimeout(finish, seconds*1000+150); return()=>{try{cancelAnimationFrame(rafRef.current)}catch{}; try{clearTimeout(tmoRef.current)}catch{};}; },[isRunning,seconds,onComplete]);
+      const reset=(sec=seconds)=>{ setRemaining(sec); startRef.current=null; try{cancelAnimationFrame(rafRef.current)}catch{}; try{clearTimeout(tmoRef.current)}catch{}; doneRef.current=false; };
+      return {remaining,reset};
+    }
+    const useBeep=()=>{ const ctxRef=useRef(null); const ensure=()=>{ if(!ctxRef.current){ ctxRef.current=new (window.AudioContext||window.webkitAudioContext)(); } return ctxRef.current; }; return { beep:(f=880,d=120)=>{ try{ const ctx=ensure(); const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='sine'; o.frequency.value=f; g.gain.value=0.04; o.connect(g).connect(ctx.destination); const t=ctx.currentTime; o.start(t); o.stop(t+d/1000);}catch{}} }; };
+    const useSize=(ref)=>{ const sRef=useRef({w:0,h:0,min:0,cx:0,cy:0}); useEffect(()=>{ const el=ref.current; if(!el) return; const upd=()=>{ const r=el.getBoundingClientRect(); sRef.current={w:r.width,h:r.height,min:Math.min(r.width,r.height),cx:r.width/2,cy:r.height/2}; }; upd(); const ro=new ResizeObserver(upd); ro.observe(el); return()=>ro.disconnect(); },[ref]); return sRef; };
+    const useHalf=(ref)=>{ const h=useRef(0); useEffect(()=>{ const upd=()=>{ if(ref.current) h.current=ref.current.offsetWidth/2; }; const ro=new ResizeObserver(upd); if(ref.current) ro.observe(ref.current); upd(); return()=>ro.disconnect(); },[ref]); return h; };
+
+    // Exercises
+    function HartChart({ onRecord, seconds, chan, mode }){
+      // define helpers before use to avoid TDZ/hoist bugs
+      const makeGrid=()=>{ const letters='ABCDEFGHJKLMNPQRSTUVWXYZ'; return Array.from({length:25},()=>letters[Math.floor(Math.random()*letters.length)]); };
+      const outline=(px)=> px<=0?'none':[`${-px}px 0 0 #000`,`${px}px 0 0 #000`,`0 ${-px}px 0 #000`,`0 ${px}px 0 #000`,`${-px}px ${-px}px 0 #000`,`${px}px ${-px}px 0 #000`,`${-px}px ${px}px 0 #000`,`${px}px ${px}px 0 #000`].join(',');
+
+      const [periodMs,setPeriodMs]=React.useState(1800);
+      const [grid,setGrid]=React.useState(()=>makeGrid());
+      const [idx,setIdx]=React.useState(0);
+      const [phase,setPhase]=React.useState('far');
+      const [nearScale,setNearScale]=React.useState(1.35);
+      const [farScale,setFarScale]=React.useState(0.75);
+      const [clears,setClears]=React.useState(0);
+      const [outlinePx,setOutlinePx]=React.useState(2);
+      const [sep,setSep]=React.useState(6);
+
+      React.useEffect(()=>{ const id=setInterval(()=>{ setPhase(p=>p==='far'?'near':'far'); setIdx(i=>(i+1)%25); },periodMs); return()=>clearInterval(id); },[periodMs]);
+
+      const handleClear=()=>{ setClears(c=>c+1); onRecord&&onRecord({type:'Hart@clear',i:idx,phase,ts:Date.now()}); };
+      const scale=phase==='near'? nearScale:farScale;
+      const otherHex = mode==='RC'?'#00ffff':(mode==='RB'?'#3399ff':'#00ff00');
+      const otherFilter = `hue-rotate(${chan?.gHue||0}deg) brightness(${chan?.gLum||1}) saturate(${chan?.gSat||1})`;
+
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">Hart‑Chart (Near ↔ Far)</div>
+            <div className="sub">Fokuser på markeret bogstav. Skifter automatisk nær↔fjern. Brug separation for 3D‑effekt.</div>
+          </div>
+          <div className="stage center" onClick={handleClear} style={{background:'#000'}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(5, minmax(0,1fr))',gap:'clamp(6px,1.2vw,12px)',transform:`scale(${scale})`}}>
+              {grid.map((ch,i)=> (
+                <div key={i} style={{position:'relative',width:'clamp(28px,5vw,56px)',height:'clamp(28px,5vw,56px)',borderRadius:10,display:'grid',placeItems:'center',overflow:'hidden',border:i===idx?'1px solid #555':'none',background:i===idx?'#1a1a1a':'transparent'}}>
+                  <span style={{color:'#ff0000',position:'absolute',textShadow:outline(outlinePx),transform:`translateX(${-sep}px)`,opacity:chan?.red??1}}>{ch}</span>
+                  <span style={{color: otherHex,position:'absolute',textShadow:outline(outlinePx),transform:`translateX(${sep}px)`,opacity:chan?.green??0.8, filter: otherFilter}}>{ch}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="control-grid" style={{gridTemplateColumns:'repeat(5,minmax(0,1fr))'}}>
+            <div className="card" style={{gridColumn:'span 2'}}><div className="ghost">Skifte‑interval: {(periodMs/1000).toFixed(1)} s</div><input type="range" min={1000} max={4000} step={100} value={periodMs} onChange={(e)=>setPeriodMs(parseInt(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Nær (str.): {nearScale.toFixed(2)}×</div><input type="range" min={1.1} max={1.8} step={0.01} value={nearScale} onChange={(e)=>setNearScale(parseFloat(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Fjern (str.): {farScale.toFixed(2)}×</div><input type="range" min={0.6} max={1.0} step={0.01} value={farScale} onChange={(e)=>setFarScale(parseFloat(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Ghost‑mask: {outlinePx}px</div><input type="range" min={0} max={8} step={1} value={outlinePx} onChange={(e)=>setOutlinePx(parseInt(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Separation (3D): {sep}px</div><input type="range" min={0} max={12} step={1} value={sep} onChange={(e)=>setSep(parseInt(e.target.value))}/></div>
+            <button className="btn" onClick={()=> setGrid(makeGrid())}>Ny tavle</button>
+          </div>
+          <div className="ghost">Klare: {clears} • Tid tilbage: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function FigureEightPursuit({ onRecord, seconds, chan, mode }){
+      const containerRef=useRef(null); const ballRef=useRef(null);
+      const size=useSize(containerRef); const half=useHalf(ballRef);
+      const [periodSec,setPeriodSec]=useState(6); const [amp,setAmp]=useState(0.36); const [dir,setDir]=useState(1); const [running,setRunning]=useState(true);
+      const [eyeMode,setEyeMode]=useState('auto');
+      const initSecRef=useRef(null);
+      useEffect(()=>{ if(initSecRef.current===null) initSecRef.current = seconds; },[seconds]);
+      const activeEye = (eyeMode==='auto') ? ((initSecRef.current && seconds <= initSecRef.current/2)? 'green':'red') : eyeMode;
+      const redOpacity = (activeEye==='red' || activeEye==='both') ? (chan?.red ?? 1) : 0;
+      const greenOpacity = (activeEye==='green' || activeEye==='both') ? (chan?.green ?? 0.8) : 0;
+      const otherHex = mode==='RC'?'#00ffff':(mode==='RB'?'#3399ff':'#00ff00');
+      const otherFilter = `hue-rotate(${chan?.gHue||0}deg) brightness(${chan?.gLum||1}) saturate(${chan?.gSat||1})`;
+      const t0Ref=useRef(null); const rafRef=useRef(null);
+      useEffect(()=>{ t0Ref.current=performance.now(); const loop=()=>{ if(!running){ rafRef.current=requestAnimationFrame(loop); return; } const now=performance.now(); const t=((now-t0Ref.current)/1000)*(2*Math.PI/periodSec)*dir; const x=Math.sin(t); const y=0.5*Math.sin(2*t); const ball=ballRef.current; const s=size.current.min*amp; const cx=size.current.cx, cy=size.current.cy; if(ball && s){ const px=cx + x*s - half.current; const py=cy + y*s - half.current; const qx=Math.round(px), qy=Math.round(py);
+        ball.style.transform = `translate3d(${qx}px, ${qy}px, 0)`; } rafRef.current=requestAnimationFrame(loop); }; rafRef.current=requestAnimationFrame(loop); return ()=> cancelAnimationFrame(rafRef.current); },[periodSec,amp,dir,running]);
+      const handleClear=()=> onRecord && onRecord({ type:'Figure8@mark', eye:activeEye, ts:Date.now() });
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">Samsyn & øjenbevægelser — 8‑taller</div>
+            <div className="sub">Skifter auto halvvejs mellem rød↔grøn visning. Brug knapperne for manuel isolering.</div>
+          </div>
+          <div ref={containerRef} className="stage" onClick={handleClear} style={{background:'#000',position:'relative'}}>
+            <div ref={ballRef} className="ball" aria-label="kugle">
+              <div style={{ position:'absolute', inset:0, borderRadius:'9999px', background:'#ff0000', opacity:redOpacity }}></div>
+              <div style={{ position:'absolute', inset:0, borderRadius:'9999px', background: otherHex, opacity:greenOpacity, filter: otherFilter }}></div>
+              <div style={{ position:'absolute', inset:0, borderRadius:'9999px', border:'2px solid #000', opacity: chan?.underlay?0.6:0.3 }}></div>
+            </div>
+          </div>
+          <div className="control-grid" style={{gridTemplateColumns:'repeat(6,minmax(0,1fr))'}}>
+            <div className="card" style={{gridColumn:'span 2'}}><div className="ghost">Periode (sek./løkke): {periodSec.toFixed(1)} s</div><input type="range" min={3} max={12} step={0.5} value={periodSec} onChange={(e)=>setPeriodSec(parseFloat(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Størrelse: {(amp*100).toFixed(0)}%</div><input type="range" min={0.2} max={0.5} step={0.02} value={amp} onChange={(e)=>setAmp(parseFloat(e.target.value))}/></div>
+            <div className="hstack"><button className="btn" onClick={()=> setDir(d=>-d)}>Skift retning</button></div>
+            <div className="card" style={{gridColumn:'span 2'}}>
+              <div className="ghost" style={{marginBottom:6}}>Øje‑isolering</div>
+              <div className="hstack">
+                <button className="btn btn--primary" onClick={()=> setEyeMode('auto')}>Auto (½‑skift)</button>
+                <button className="btn" onClick={()=> setEyeMode('red')}>Rød</button>
+                <button className="btn" onClick={()=> setEyeMode('green')}>Grøn</button>
+                <button className="btn" onClick={()=> setEyeMode('both')}>Begge</button>
+              </div>
+            </div>
+            <button className="btn btn--primary" onClick={handleClear}>Klar</button>
+          </div>
+          <div className="ghost">Tid tilbage: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function AccommodationRock({ onRecord, seconds, globalIntensity, chan, mode }){
+      const [periodMs,setPeriodMs]=useState(2500); const [nearScale,setNearScale]=useState(1.4); const [farScale,setFarScale]=useState(0.8); const [phase,setPhase]=useState(0); const [clears,setClears]=useState(0);
+      useEffect(()=>{ const id=setInterval(()=> setPhase(p=> p===0?1:0),periodMs); return()=>clearInterval(id);},[periodMs]);
+      const handleClear=()=>{ setClears(c=>c+1); onRecord && onRecord({ type:'AccommodationRock@clear', clears:clears+1, phase, ts:Date.now() }); };
+      const activeColor=phase===0? `rgba(255,0,0,${chan?.red ?? 1})`:(mode==='RC'? `rgba(0,255,255,${chan?.green ?? 0.8})` : `rgba(0,255,0,${chan?.green ?? 0.8})` ); const scale=phase===0? nearScale:farScale;
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">Akkommodations‑rock (mono)</div>
+            <div className="sub">Fokusér til klart når <span style={{color:activeColor}}>DIT ØJE</span> er aktivt. Tryk Klar efter hvert skift.</div>
+          </div>
+          <div className="stage center" onClick={handleClear} style={{background:'#000'}}>
+            <div style={{ fontSize:'clamp(32px,10vw,120px)', fontWeight:900, letterSpacing:'0.05em', transform:`scale(${scale})`, color: activeColor }}>FOKUS</div>
+          </div>
+          <div className="control-grid" style={{gridTemplateColumns:'repeat(4,minmax(0,1fr))'}}>
+            <div className="card" style={{gridColumn:'span 2'}}><div className="ghost">Skifte‑interval: {(periodMs/1000).toFixed(1)} s</div><input type="range" min={1200} max={5000} step={100} value={periodMs} onChange={(e)=>setPeriodMs(parseInt(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Nær (str.): {nearScale.toFixed(2)}×</div><input type="range" min={1.0} max={2.2} step={0.01} value={nearScale} onChange={(e)=>setNearScale(parseFloat(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Fjern (str.): {farScale.toFixed(2)}×</div><input type="range" min={0.6} max={1.0} step={0.01} value={farScale} onChange={(e)=>setFarScale(parseFloat(e.target.value))}/></div>
+            <button className="btn btn--primary" onClick={handleClear} style={{gridColumn:'span 4'}}>Klar</button>
+          </div>
+          <div className="ghost">Klare: {clears} • Tid tilbage: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function DeaccommodationDrill({ onRecord, seconds, chan, mode }){
+      const [nearHoldMs,setNearHoldMs]=useState(1400); const [farHoldMs,setFarHoldMs]=useState(400); const [nearScale,setNearScale]=useState(1.5); const [farScale,setFarScale]=useState(0.76); const [phase,setPhase]=useState('near'); const [tStart,setTStart]=useState(null); const [rts,setRTs]=useState([]);
+      useEffect(()=>{ let timer; if(phase==='near'){ timer=setTimeout(()=>{ setPhase('far-wait'); setTStart(performance.now()); },nearHoldMs);} else if(phase==='far-hold'){ timer=setTimeout(()=> setPhase('near'), farHoldMs);} return()=> clearTimeout(timer); },[phase,nearHoldMs,farHoldMs]);
+      const handleClear=()=>{ if(phase==='far-wait'&&tStart){ const rt=performance.now()-tStart; setRTs(arr=>{ const next=[...arr,rt]; onRecord && onRecord({ type:'DeaccomRT', ms:Math.round(rt), ts:Date.now() }); return next;}); setPhase('far-hold'); setTStart(null);} };
+      const mean=rts.length? (rts.reduce((a,b)=>a+b,0)/rts.length):0; const sd=rts.length>1? Math.sqrt(rts.reduce((s,x)=> s+Math.pow(x-mean,2),0)/(rts.length-1)):0; const scale=phase==='near'? nearScale:farScale;
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">Deakkom (N→F) — reaktionstid</div>
+            <div className="sub">Se skarpt på nær. Når målet går til fjern, tryk Klar så snart det er skarpt.</div>
+          </div>
+          <div className="stage center" onClick={handleClear} style={{background:'#000'}}>
+            <div style={{ fontSize:'clamp(32px,10vw,120px)', fontWeight:900, letterSpacing:'0.05em', transform:`scale(${scale})` }}>
+              <span style={{ color:'#ff0000', opacity:(chan?.red ?? 1) }}>FO</span>
+              <span style={{ color: mode==='RC'?'#00ffff':(mode==='RB'?'#3399ff':'#00ff00'), opacity:(chan?.green ?? 0.8), filter:`hue-rotate(${chan?.gHue||0}deg) brightness(${chan?.gLum||1}) saturate(${chan?.gSat||1})` }}>KUS</span>
+            </div>
+          </div>
+          <div className="control-grid" style={{gridTemplateColumns:'repeat(5,minmax(0,1fr))'}}>
+            <div className="card" style={{gridColumn:'span 2'}}><div className="ghost">Nær‑hold: {(nearHoldMs/1000).toFixed(1)} s</div><input type="range" min={800} max={3000} step={100} value={nearHoldMs} onChange={(e)=>setNearHoldMs(parseInt(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Nær (str.): {nearScale.toFixed(2)}×</div><input type="range" min={1.1} max={2.2} step={0.01} value={nearScale} onChange={(e)=>setNearScale(parseFloat(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Fjern (str.): {farScale.toFixed(2)}×</div><input type="range" min={0.6} max={1.0} step={0.01} value={farScale} onChange={(e)=>setFarScale(parseFloat(e.target.value))}/></div>
+            <button className="btn btn--primary" onClick={handleClear} style={{gridColumn:'span 5'}}>Klar (N→F)</button>
+          </div>
+          <div className="ghost">Målinger: {rts.length} • Gennemsnit: {mean? `${Math.round(mean)} ms`:'–'} • SD: {sd? `${Math.round(sd)} ms`:'–'} • Tid: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function DeaccomStarfield({ onRecord, seconds, onStress, chan, mode }){
+      const containerRef=useRef(null); const ballRef=useRef(null); const starsCanvasRef=useRef(null); const size=useSize(containerRef); const half=useHalf(ballRef);
+      const [nearHoldMs,setNearHoldMs]=useState(900); const [transMs,setTransMs]=useState(1800); const [farHoldMs,setFarHoldMs]=useState(500); const [dirNF,setDirNF]=useState(true); const [starSpacing,setStarSpacing]=useState(2); const [depth,setDepth]=useState(1.2);
+      const [succ2,setSucc2]=useState(0); const [breakLeft,setBreakLeft]=useState(0); const breakRef=useRef(0); const tStartRef=useRef(null); const rafRef=useRef(null); const clearThisTrialRef=useRef(false);
+      const otherFilter = `hue-rotate(${chan?.gHue||0}deg) brightness(${chan?.gLum||1}) saturate(${chan?.gSat||1})`;
+      useEffect(()=>{ const redraw=()=>{ const cnv=starsCanvasRef.current, el=containerRef.current; if(!cnv||!el) return; const dpr=Math.max(1,window.devicePixelRatio||1); const w=el.clientWidth,h=el.clientHeight; cnv.width=Math.max(1,Math.round(w*dpr)); cnv.height=Math.max(1,Math.round(h*dpr)); cnv.style.width=w+'px'; cnv.style.height=h+'px'; const ctx=cnv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h); const count=Math.max(20,Math.round(160/(starSpacing*starSpacing))); for(let i=0;i<count;i++){ const x=Math.random()*w,y=Math.random()*h,r=Math.random()<0.1?1.5:1; ctx.globalAlpha=0.35+Math.random()*0.55; ctx.fillStyle='#bbb'; ctx.fillRect(x,y,r,r);} ctx.globalAlpha=1; }; redraw(); const onR=()=>redraw(); window.addEventListener('resize',onR,{passive:true}); return()=>window.removeEventListener('resize',onR); },[starSpacing]);
+      const [phase,setPhase]=useState('near'); useEffect(()=>{ if(breakRef.current>0) return; let timer; if(phase==='near'){ clearThisTrialRef.current=false; timer=setTimeout(()=> setPhase('trans'), nearHoldMs);} else if(phase==='far-hold'){ timer=setTimeout(()=> setPhase('near'), farHoldMs);} return()=> clearTimeout(timer); },[phase,nearHoldMs,farHoldMs]);
+      useEffect(()=>{ if(phase!=='trans' || breakRef.current>0) return; const t0=performance.now(); tStartRef.current=t0; const loop=()=>{ const now=performance.now(); const p=Math.min(1,(now-t0)/transMs); const ball=ballRef.current; if(ball){ const base=size.current.min||0; const nearDisp=base*0.06*depth, farDisp=base*0.008*depth; const nearScale=1.7, farScale=0.85; const q=dirNF?p:(1-p); const disp=nearDisp*(1-q)+farDisp*q; const scl=nearScale*(1-q)+farScale*q; const cx=size.current.cx, cy=size.current.cy; const px=cx-half.current, py=cy-half.current; const qx=Math.round(px), qy=Math.round(py), qd=Math.round(disp); ball.style.transform=`translate3d(${qx}px,${qy}px,0) scale(${scl})`; const red=ball.querySelector('.b-red'), green=ball.querySelector('.b-green'); if(red&&green){ red.style.transform=`translate3d(${-qd}px,0,0)`; green.style.transform=`translate3d(${qd}px,0,0)`; } } if(p<1){ rafRef.current=requestAnimationFrame(loop);} else { if(!clearThisTrialRef.current){ onRecord&&onRecord({ type:'StarRT', ms:null, dir:dirNF?'N→F':'F→N', trans:transMs, depth, spacing:starSpacing, success:false, points:0, miss:true, ts:Date.now() }); setSucc2(0);} setPhase('far-hold'); } }; rafRef.current=requestAnimationFrame(loop); return()=> cancelAnimationFrame(rafRef.current); },[phase,transMs,dirNF,depth]);
+      function handleClear(){ if(phase==='trans'&&tStartRef.current){ clearThisTrialRef.current=true; const rt=performance.now()-tStartRef.current; const success= rt <= (0.7*transMs); const pts=Math.max(10, Math.round(100*depth*(transMs/Math.max(350,rt)))); onRecord&&onRecord({ type:'StarRT', ms:Math.round(rt), dir:dirNF?'N→F':'F→N', trans:transMs, depth, spacing:starSpacing, success, points:pts, ts:Date.now() }); if(success){ setSucc2(k=> (k+1>=2 ? 0:k+1)); if(succ2+1>=2){ setTransMs(t=>Math.max(800,Math.round(t*0.9))); setDepth(d=>Math.min(1.6, +(d*1.05).toFixed(2))); }} else { setTransMs(t=>Math.min(4000,Math.round(t*1.1))); setDepth(d=>Math.max(0.8, +(d*0.97).toFixed(2))); } setPhase('far-hold'); } }
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">Deakkom 3D — Starfield</div>
+            <div className="sub">Tryk Klar, når objektet er skarpt nær slutningen af N→F‑overgangen. Staircase 2‑ned/1‑op.</div>
+          </div>
+          <div ref={containerRef} className="stage" onClick={handleClear} style={{background:'#000',position:'relative'}}>
+            <canvas ref={starsCanvasRef} style={{ position:'absolute', inset:0 }}></canvas>
+            <div ref={ballRef} className="ball" aria-label="mål" style={{ position:'absolute' }}>
+              <div className="b-red" style={{ position:'absolute', inset:0, borderRadius:'9999px', background:'#ff0000', opacity:(chan?.red ?? 1) }}></div>
+              <div className="b-green" style={{ position:'absolute', inset:0, borderRadius:'9999px', background: mode==='RC'?'#00ffff':(mode==='RB'?'#3399ff':'#00ff00'), opacity:(chan?.green ?? 0.8), filter: otherFilter }}></div>
+              <div style={{ position:'absolute', inset:0, borderRadius:'9999px', border:'2px solid #000', opacity: chan?.underlay?0.65:0.35 }}></div>
+            </div>
+          </div>
+          <div className="control-grid" style={{gridTemplateColumns:'repeat(8,minmax(0,1fr))'}}>
+            <div className="card" style={{gridColumn:'span 2'}}><div className="ghost">Nær-hold: {(nearHoldMs/1000).toFixed(1)} s</div><input type="range" min={600} max={2000} step={100} value={nearHoldMs} onChange={(e)=> setNearHoldMs(parseInt(e.target.value))}/></div>
+            <div className="card" style={{gridColumn:'span 2'}}><div className="ghost">Overgang: {(transMs/1000).toFixed(1)} s</div><input type="range" min={800} max={4000} step={100} value={transMs} onChange={(e)=> setTransMs(parseInt(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Retning</div><button className="btn" onClick={()=> setDirNF(v=>!v)}>{dirNF? 'N→F (deakkom)':'F→N (akkom)'}</button></div>
+            <div className="card"><div className="ghost">Stjerneafstand</div><input type="range" min={1} max={5} step={1} value={starSpacing} onChange={(e)=> setStarSpacing(parseInt(e.target.value))}/></div>
+            <div className="card"><div className="ghost">Dybde</div><input type="range" min={0.8} max={1.6} step={0.05} value={depth} onChange={(e)=> setDepth(parseFloat(e.target.value))}/></div>
+            <button className="btn btn--primary" onClick={handleClear}>Klar</button>
+          </div>
+          <div className="ghost">Tid tilbage: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function Cooldown(){
+      return (
+        <div className="stage center" style={{background:'#000'}}>
+          <div>
+            <div className="title" style={{marginBottom:6}}>Afslapning</div>
+            <div className="sub">Luk øjnene 20–30 sek. “Palming” kan anvendes. Afslut med rolige vejrtrækninger.</div>
+          </div>
+        </div>
+      );
+    }
+
+    function makeBaseAll(){
+      return [
+        { key:'deaccom_star', title:'Deakkom 3D — Starfield', minutes:1.5, Component: DeaccomStarfield },
+        { key:'deaccom_rt', title:'Deakkom (N→F) — RT', minutes:1.2, Component: DeaccommodationDrill },
+        { key:'hart', title:'Hart‑Chart (Near↔Far)', minutes:1.2, Component: HartChart },
+        { key:'figure8', title:'8‑taller (samsyn & pursuit)', minutes:1.2, Component: FigureEightPursuit },
+        { key:'accom_rock', title:'Akkom‑rock (mono)', minutes:1.2, Component: AccommodationRock },
+        { key:'cooldown', title:'Afslapning', minutes:0.8, Component: Cooldown },
+      ];
+    }
+
+    function Landing({ selectedProgram, setSelectedProgram, onNext }){
+      return (
+        <div className="stage center" style={{border:'none'}}>
+          <div className="center" style={{flexDirection:'column',gap:14}}>
+            <div className="title">Velkommen</div>
+            <div className="sub">Vælg program (Auto anbefales). Brug anaglyf rød/grøn brille.</div>
+            <div className="hstack">
+              <span className="ghost">Program:</span>
+              <button className={`btn ${selectedProgram==='auto'?'btn--primary':''}`} onClick={()=> setSelectedProgram('auto')}>Auto</button>
+              <button className={`btn ${selectedProgram==='all'?'btn--primary':''}`} onClick={()=> setSelectedProgram('all')}>All‑around</button>
+              <button className={`btn ${selectedProgram==='deaccom'?'btn--primary':''}`} onClick={()=> setSelectedProgram('deaccom')}>Deakkom‑fokus</button>
+            </div>
+            <button className="btn btn--primary" onClick={onNext}>Fortsæt til kalibrering</button>
+            <div className="ghost">Tip: Slå True Tone / Nat‑lys fra og sænk lysstyrke 10–20%.</div>
+          </div>
+        </div>
+      );
+    }
+
+    function Calibration({ onBack, onStart, plan, chan, setChan, mode }) {
+      const otherLabel = mode==='RC' ? 'C' : (mode==='RB' ? 'B' : 'G');
+      const otherHex = mode==='RC' ? '#00ffff' : (mode==='RB' ? '#3399ff' : '#00ff00');
+      const gHue = chan?.gHue ?? 0, gLum = chan?.gLum ?? 1, gSat = chan?.gSat ?? 1;
+      const otherFilter = `hue-rotate(${gHue}deg) brightness(${gLum}) saturate(${gSat})`;
+
+      return (
+        <div className="section center" style={{minHeight:'70vh'}}>
+          <div className="card" style={{maxWidth:820,width:'min(92vw,820px)'}}>
+            <div className="title" style={{marginBottom:6}}>Farvekalibrering</div>
+            <div className="sub" style={{marginBottom:12}}>Tip: Vælg R/C eller R/B hvis R/G lækker. Justér Tint og Lysstyrke for at minimere lækage til det røde øje.</div>
+
+            <div className="center" style={{background:'#0b0b0b',border:'1px solid #262626',borderRadius:12, width:'100%', aspectRatio:'16/6'}}>
+              <div style={{ fontSize:'clamp(36px,9vw,110px)', fontWeight:900, letterSpacing:'0.2em' }}>
+                <span style={{ color:'#ff0000', opacity:chan.red }}>R</span>
+                <span style={{ margin:'0 2rem' }}></span>
+                <span style={{ color: otherHex, opacity:chan.green, filter: otherFilter }}>{otherLabel}</span>
+              </div>
+            </div>
+
+            {/* Strength sliders */}
+            <div className="control-grid" style={{gridTemplateColumns:'repeat(2,minmax(0,1fr))',marginTop:12}}>
+              <div className="card">
+                <div className="ghost">Rød kanalstyrke: {chan.red.toFixed(2)}</div>
+                <input type="range" min={0} max={1.2} step={0.02}
+                  value={chan.red}
+                  onChange={(e)=> setChan({ ...chan, red: parseFloat(e.target.value) })}/>
+              </div>
+              <div className="card">
+                <div className="ghost">{otherLabel} kanalstyrke: {chan.green.toFixed(2)}</div>
+                <input type="range" min={0} max={1.2} step={0.02}
+                  value={chan.green}
+                  onChange={(e)=> setChan({ ...chan, green: parseFloat(e.target.value) })}/>
+              </div>
+            </div>
+
+            {/* Anti-ghost tuning */}
+            <div className="control-grid" style={{gridTemplateColumns:'repeat(4,minmax(0,1fr))',marginTop:12}}>
+              <div className="card">
+                <div className="ghost">Tint ({otherLabel}): {gHue}°</div>
+                <input type="range" min={-60} max={60} step={1}
+                  value={gHue}
+                  onChange={(e)=> setChan({ ...chan, gHue: parseInt(e.target.value) })}/>
+              </div>
+              <div className="card">
+                <div className="ghost">Lysstyrke ({otherLabel}): {gLum.toFixed(2)}×</div>
+                <input type="range" min={0.5} max={1.2} step={0.01}
+                  value={gLum}
+                  onChange={(e)=> setChan({ ...chan, gLum: parseFloat(e.target.value) })}/>
+              </div>
+              <div className="card">
+                <div className="ghost">Mætning ({otherLabel}): {gSat.toFixed(2)}×</div>
+                <input type="range" min={0.5} max={1.3} step={0.01}
+                  value={gSat}
+                  onChange={(e)=> setChan({ ...chan, gSat: parseFloat(e.target.value) })}/>
+              </div>
+              <div className="card">
+                <div className="ghost">Sort kant/underlay: {chan.underlay? 'Til':'Fra'}</div>
+                <label style={{display:'flex',alignItems:'center',gap:8}}>
+                  <input type="checkbox" checked={!!chan.underlay}
+                    onChange={(e)=> setChan({ ...chan, underlay: e.target.checked })}/>
+                  Aktivér
+                </label>
+              </div>
+            </div>
+
+            <div className="ghost" style={{marginTop:10}}>Dagens program: {plan.map(p=> p.title).join(' → ')}</div>
+
+            <div className="hstack" style={{justifyContent:'space-between',marginTop:12}}>
+              <button className="btn" onClick={onBack}>Tilbage</button>
+              <div className="hstack">
+                <button className="btn" onClick={()=> setChan(s=>({ ...s, green:0.85, gHue: (mode==='RB'? -24: 24), gLum:0.78, gSat:0.9, underlay:true }))}>Aggressiv anti-ghost</button>
+                <button className="btn btn--ghost" onClick={()=> setChan(s=>({ ...s, green:0.7, gHue:20, gLum:0.82, gSat:0.85, underlay:true }))}>Nulstil kalibrering</button>
+                <button className="btn btn--primary" onClick={onStart}>Start dagens program</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function Summary({ log, onRestart, weekly }){
+      const today=TODAY();
+      const star=(log.results||[]).filter(r=> r.type==='StarRT' && r.dir==='N→F');
+      const med=median(star.map(r=> r.ms).filter(Boolean)); const succ=star.filter(r=> r.success).length; const tot=star.length; const rate=tot? Math.round(100*succ/tot):null; const bestDepth=star.reduce((m,r)=> Math.max(m, r.depth||0),0);
+      return (
+        <div className="section center" style={{minHeight:'60vh'}}>
+          <div className="center" style={{flexDirection:'column',gap:12}}>
+            <div className="title">Godt arbejde!</div>
+            <div className="hstack">
+              <div className="card">Median N→F RT<br/><b style={{fontSize:'20px'}}>{med? med+' ms':'–'}</b></div>
+              <div className="card">Success‑rate<br/><b style={{fontSize:'20px'}}>{rate!=null? rate+'%':'–'}</b></div>
+              <div className="card">Max dybde<br/><b style={{fontSize:'20px'}}>{bestDepth? bestDepth.toFixed(2):'–'}</b></div>
+            </div>
+            <div className="ghost">Dagens session ({today}) er gemt lokalt.</div>
+            <button className="btn" onClick={onRestart}>Start igen</button>
+          </div>
+        </div>
+      );
+    }
+
+    function App(){
+      const { beep }=useBeep();
+      const [selectedProgram,setSelectedProgram]=useState('auto');
+      const [plan,setPlan]=useState(makeBaseAll());
+      const [started,setStarted]=useState(false); const [paused,setPaused]=useState(false); const [step,setStep]=useState(0); const [idx,setIdx]=useState(0);
+      const [chan,setChan]=useState(()=> store.get('svt_chan',{ red:1.0, green:0.7, gHue:20, gLum:0.82, gSat:0.85, underlay:true })); useEffect(()=>{ store.set('svt_chan', chan); },[chan]);
+      const [colorMode,setColorMode]=useState(()=> store.get('svt_mode','RG'));
+      useEffect(()=>{ store.set('svt_mode', colorMode); },[colorMode]);
+      const [log,setLog]=useState(()=> store.get(TODAY_KEY(),{ notes:[], results:[], program:selectedProgram, points:0 }));
+
+      const active=plan[idx]; const totalSeconds=(active?.minutes??0)*60; const { remaining, reset }=useCountdown(totalSeconds,{ isRunning: started && !paused && idx<plan.length && step===2, onComplete: ()=>{ beep(660,150); nextExercise(); } });
+      const elapsedInExercise=active? (active.minutes*60-remaining):0; const totalPlanSec=plan.reduce((s,p)=> s+p.minutes*60,0); const totalElapsedSec=plan.slice(0,idx).reduce((s,p)=> s+p.minutes*60,0)+elapsedInExercise;
+
+      function nextExercise(){ setIdx(i=>{ const ni=i+1; if(ni>=plan.length){ setStep(3); setStarted(false); setPaused(false); return i; } setTimeout(()=> reset(plan[ni].minutes*60),0); return ni; }); }
+      function startPlan(){ setStep(2); setStarted(true); setPaused(false); setIdx(0); reset(plan[0].minutes*60); beep(880,180); setLog(L=> ({...L, program:selectedProgram})); }
+      function record(r){ setLog(L=> ({...L, results:[...(L.results||[]), { ...r, idx, exercise: plan[idx]?.key, program:selectedProgram }]})); }
+
+      return (
+        <div className="app">
+          <div className="header">
+            <div className="brand"><div className="brand-logo"></div><div className="brand-meta"><div className="brand-title">V{BUILD} — Vanilla (no Tailwind)</div><div className="brand-sub">HTML • ~10 min/dag</div></div></div>
+            <div className="toolbar"><div className="chan"><label>Farver</label><button className={`btn ${colorMode==='RG'?'btn--primary':''}`} onClick={()=> setColorMode('RG')}>R/G</button><button className={`btn ${colorMode==='RC'?'btn--primary':''}`} onClick={()=> setColorMode('RC')}>R/C</button><button className={`btn ${colorMode==='RB'?'btn--primary':''}`} onClick={()=> setColorMode('RB')}>R/B</button></div>
+              <div className="chan"><label>R</label><input type="range" min={0} max={1.2} step={0.02} value={chan.red} onChange={(e)=> setChan({...chan, red:parseFloat(e.target.value)})}/><label>{colorMode==='RC'?'C':(colorMode==='RB'?'B':'G')}</label><input type="range" min={0} max={1.2} step={0.02} value={chan.green} onChange={(e)=> setChan({...chan, green:parseFloat(e.target.value)})}/></div>
+            </div>
+          </div>
+
+          <div className="container">
+            <div className="progress"><div className="progress-bar" style={{width:`${(100*totalElapsedSec)/totalPlanSec}%`}}></div></div>
+            <div className="progress-meta"><span>Forløb: {fmtMMSS(totalElapsedSec)} / {fmtMMSS(totalPlanSec)}</span>{step===2 && active && <span>Øvelse: {active.title} • {fmtMMSS(remaining)}</span>}</div>
+          </div>
+
+          <div className="main">
+            <div className="section">
+              {step===0 && <Landing selectedProgram={selectedProgram} setSelectedProgram={setSelectedProgram} onNext={()=> setStep(1)} />}
+              {step===1 && <Calibration onBack={()=> setStep(0)} onStart={startPlan} plan={plan} chan={chan} setChan={setChan} mode={colorMode} />}
+              {step===2 && active && (
+                <div className="stage" style={{padding:0}}>
+                  <active.Component onRecord={record} seconds={remaining} chan={chan} mode={colorMode} />
+                </div>
+              )}
+              {step===3 && <Summary log={store.get(TODAY_KEY(),{})} onRestart={()=> setStep(1)} weekly={{}} />}
+            </div>
+            <div className="footer">
+              <div className="hstack">
+                <button className="btn" onClick={()=> setPaused(p=>!p)} disabled={step!==2}>{paused? 'Fortsæt':'Pause'}</button>
+                <button className="btn" onClick={()=> setIdx(i=> Math.max(0,i-1))} disabled={step!==2 || idx===0}>Tilbage</button>
+                <button className="btn" onClick={()=> setIdx(i=> Math.min(plan.length-1,i+1))} disabled={step!==2}>Spring over</button>
+              </div>
+              <div className="ghost">Brug version: <b>V{BUILD}</b></div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // --- Minimal smoke tests (safe, console-only) ---
+    function runSmokeTests(){
+      try {
+        const results = [];
+        const ok = (name, cond)=> results.push({name, pass: !!cond});
+        ok('React present', !!window.React && !!window.ReactDOM);
+        ok('Root exists', !!document.getElementById('root'));
+        ok('App mounted', document.body.textContent.includes('Vanilla (no Tailwind)'));
+        console.log('[SMOKE TESTS]', results);
+      } catch (e) {
+        console.log('[SMOKE TESTS] crash', e && (e.stack || e.message));
+      }
+    }
+
+    try{
+      ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+      setTimeout(runSmokeTests, 200);
+    }catch(e){
+      const box=document.getElementById('err');
+      const p=document.getElementById('errtxt');
+      p.textContent='Startfejl: '+((e&&e.stack)||(e&&e.message)||String(e));
+      box.style.display='grid';
+    }
+  </script>
+</body>
+</html>
