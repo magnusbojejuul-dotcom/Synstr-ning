@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>Samsyn Trainer — Vanilla v2.0 (no Tailwind)</title>
   <meta name="theme-color" content="#0a0a0a"/>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Samsyn Trainer">
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -92,10 +92,10 @@
   <!-- PWA: SW registration + install button injection -->
   <script>
     (function(){
-      if ('serviceWorker' in navigator) {
+      if (!/htmlpreview\.github\.io|github\.com|raw\.githubusercontent\.com/.test(location.hostname) && 'serviceWorker' in navigator) {
         window.addEventListener('load', async function(){
           try {
-            const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+            const reg = await navigator.serviceWorker.register('sw.js', { scope: './' });
             // Refresh page when a new SW takes control
             navigator.serviceWorker.addEventListener('controllerchange', function(){ location.reload(); });
           } catch (e) { console.warn('SW registration failed', e); }
@@ -121,7 +121,7 @@
       });
     })();
   </script>
-  <script type="text/babel">
+  <script type="text/babel" data-presets="env,react" data-plugins="proposal-optional-chaining,proposal-nullish-coalescing">
     const BUILD = '2.1.0-vanilla-fix';
     const { useState, useEffect, useRef } = React;
 
