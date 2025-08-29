@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Samsyn Trainer — Vanilla V2 (patched+)</title>
+  <meta name="theme-color" content="#0a0a0a"/>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html,body,#root{height:100%}
+    body{margin:0;background:#0a0a0a;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .app{min-height:100%;display:flex;flex-direction:column}
+    .header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #262626;background:#0d0d0d;gap:12px}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand-logo{width:32px;height:32px;border-radius:14px;background:linear-gradient(135deg,#ef4444,#22c55e)}
+    .brand-meta{display:flex;flex-direction:column;gap:2px}
+    .brand-title{font-weight:600;font-size:15px}
+    .brand-sub{opacity:.7;font-size:11px}
+    .toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .chan{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid #262626;border-radius:14px;background:#121212}
+    .chan label{opacity:.7;font-size:12px}
+    input[type=range]{height:28px;width:100%}
+    .btn{cursor:pointer;border:1px solid #262626;border-radius:14px;background:#262626;color:#f5f5f5;padding:10px 14px;font-size:14px}
+    .btn:hover{background:#404040}
+    .btn--primary{background:#1d4ed8;border-color:#1d4ed8}
+    .btn--primary:hover{background:#2563eb}
+    .container{padding:10px 16px}
+    .progress{height:12px;border-radius:8px;background:#262626;overflow:hidden}
+    .progress-bar{height:100%;background:linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)}
+    .progress-meta{display:flex;align-items:center;justify-content:space-between;opacity:.7;font-size:12px;margin-top:4px}
+    .main{display:grid;grid-template-rows:1fr auto;flex:1}
+    .stage{height:70vh;min-height:420px;border:1px solid #262626;border-radius:18px;overflow:hidden}
+    .section{padding:16px}
+    .footer{border-top:1px solid #262626;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:10px 16px}
+    .card{background:#0b0b0b;border:1px solid #262626;border-radius:18px;padding:16px}
+    .center{display:flex;align-items:center;justify-content:center}
+    .hstack{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .control-grid{display:grid;grid-template-columns:repeat(1,minmax(0,1fr));gap:12px}
+    @media (min-width: 768px){.control-grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
+    .title{font-weight:600;font-size:clamp(16px,2.2vw,22px)}
+    .sub{opacity:.8;font-size:13px}
+    .ghost{opacity:.7;font-size:12px}
+    .ball{width:clamp(22px,3.6vw,40px);height:clamp(22px,3.6vw,40px);border-radius:9999px;position:absolute;will-change:transform;box-shadow:inset 0 0 0 2px #000}
+    .err{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.85);color:#fff;z-index:99999;padding:16px}
+    .err pre{max-width:900px;white-space:pre-wrap;word-break:break-word;background:#111;padding:12px;border-radius:12px;border:1px solid #333}
+    .pillset{display:flex;gap:6px}
+    .pill{padding:6px 10px;border:1px solid #333;border-radius:9999px;background:#141414;cursor:pointer}
+    .pill--on{background:#2563eb;border-color:#2563eb}
+    .iso{display:flex;gap:6px;flex-wrap:wrap}
+    .tiny{font-size:11px;opacity:.8}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="err" class="err"><pre id="errtxt"></pre></div>
+  <script>
+    // Global error overlay
+    (function(){
+      function show(msg){
+        var box=document.getElementById('err');
+        var p=document.getElementById('errtxt');
+        var ts=new Date().toISOString();
+        p.textContent='['+ts+'] '+msg;
+        box.style.display='grid';
+      }
+      window.addEventListener('error', function(e){ show((e && e.message)||'Ukendt script-fejl'); });
+      window.addEventListener('unhandledrejection', function(e){
+        var r = e && e.reason;
+        var m = r ? (r.stack || r.message || String(r)) : 'Ukendt promise-fejl';
+        show('Promise-fejl: '+m);
+      });
+      if (typeof window.ResizeObserver === 'undefined') {
+        window.ResizeObserver = class { constructor(cb){ this.cb=cb; this.h=()=> cb([]);} observe(){ window.addEventListener('resize', this.h, {passive:true}); } disconnect(){ window.removeEventListener('resize', this.h); } };
+      }
+    })();
+  </script>
+
+  <script type="text/babel" data-presets="react,env">
+    const BUILD = '2.3.1-vanilla-stable';
+    const { useState, useEffect, useRef } = React;
+
+    // ===== Utils =====
+    const TODAY = ()=> new Date().toISOString().slice(0,10);
+    const TODAY_KEY=()=> 'svt_session_'+TODAY();
+    const store={
+      get:function(k,f){ try{var v=localStorage.getItem(k);return v?JSON.parse(v):f;}catch(_){return f;} },
+      set:function(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(_){ } }
+    };
+    const fmtMMSS = function(sec){
+      var s=Math.max(0,Math.round(sec)); var m=Math.floor(s/60); var r=s%60;
+      return m+':'+r.toString().padStart(2,'0');
+    };
+
+    // Color mapping by mode (no optional chaining)
+    function eyeColor(mode, eye){ // eye: 'red' | 'other'
+      var m = mode==='RC' ? 'RC' : (mode==='RB' ? 'RB' : 'RG');
+      if(eye==='red') return '#ff0000';
+      if(m==='RG') return '#00ff00';
+      if(m==='RC') return '#00ffff';
+      return '#0090ff'; // RB -> blue-ish
+    }
+    function eyeRGBA(mode, eye, alpha){
+      var hex = eyeColor(mode, eye);
+      var r = parseInt(hex.substr(1,2),16);
+      var g = parseInt(hex.substr(3,2),16);
+      var b = parseInt(hex.substr(5,2),16);
+      return 'rgba('+r+','+g+','+b+','+(alpha||1)+')';
+    }
+
+    function useCountdown(seconds,opts){
+      var isRunning = opts && opts.isRunning;
+      var onComplete = opts && opts.onComplete;
+      const [remaining,setRemaining]=useState(seconds);
+      const startRef=useRef(null); const rafRef=useRef(null); const tmoRef=useRef(null); const doneRef=useRef(false);
+
+      useEffect(function(){
+        if(!isRunning) return;
+        doneRef.current=false;
+        if(!startRef.current) startRef.current=performance.now();
+        var base=startRef.current;
+
+        function finish(){
+          if(doneRef.current) return;
+          doneRef.current=true;
+          try{cancelAnimationFrame(rafRef.current)}catch(_){ }
+          try{clearTimeout(tmoRef.current)}catch(_){ }
+          if(onComplete) onComplete();
+        }
+        function tick(ts){
+          var left=Math.max(0, seconds-((ts-base)/1000));
+          setRemaining(left);
+          if(left<=0){ finish(); return;}
+          rafRef.current=requestAnimationFrame(tick);
+        }
+        rafRef.current=requestAnimationFrame(tick);
+        tmoRef.current=setTimeout(finish, seconds*1000+150);
+        return function(){
+          try{cancelAnimationFrame(rafRef.current)}catch(_){ }
+          try{clearTimeout(tmoRef.current)}catch(_){ }
+        };
+      },[isRunning,seconds,onComplete]);
+
+      function reset(sec){ var s = typeof sec==='number'? sec : seconds; setRemaining(s); startRef.current=null; try{cancelAnimationFrame(rafRef.current)}catch(_){ } try{clearTimeout(tmoRef.current)}catch(_){ } doneRef.current=false; }
+      return {remaining:remaining, reset:reset};
+    }
+
+    // Robust defaults (prevents hard crashes)
+    const DEFAULT_CHAN = { red:1, green:0.7, gHue:0, gLum:1, gSat:1, gCon:1, subpix:'none', edgePx:1 };
+    function ensureChan(c){ return (c && typeof c==='object') ? c : DEFAULT_CHAN; }
+    function ensureMode(m){ return (m==='RC'||m==='RB'||m==='RG') ? m : 'RG'; }
+
+    // Error boundary
+    class ErrorBoundary extends React.Component {
+      constructor(p){ super(p); this.state={err:null}; }
+      static getDerivedStateFromError(err){ return {err:err}; }
+      componentDidCatch(err){
+        try{
+          var box=document.getElementById('err'), p=document.getElementById('errtxt');
+          if(p) p.textContent=(err && (err.stack||err.message))||String(err);
+          if(box) box.style.display='grid';
+        }catch(_){ }
+      }
+      render(){ return this.state.err? null : this.props.children; }
+    }
+
+    // Hooks
+    const useBeep=()=>{ const ctxRef=useRef(null); const ensure=function(){ if(!ctxRef.current){ ctxRef.current=new (window.AudioContext||window.webkitAudioContext)(); } return ctxRef.current; }; return { beep:function(f,d){ var fr=f||880, dur=d||120; try{ var ctx=ensure(); var o=ctx.createOscillator(); var g=ctx.createGain(); o.type='sine'; o.frequency.value=fr; g.gain.value=0.04; o.connect(g).connect(ctx.destination); var t=ctx.currentTime; o.start(t); o.stop(t+dur/1000);}catch(_){ } } }; };
+    const useSize=(ref)=>{ const sRef=useRef({w:0,h:0,min:0,cx:0,cy:0}); useEffect(function(){ const el=ref.current; if(!el) return; function upd(){ var r=el.getBoundingClientRect(); sRef.current={w:r.width,h:r.height,min:Math.min(r.width,r.height),cx:r.width/2,cy:r.height/2}; } upd(); const ro=new ResizeObserver(upd); ro.observe(el); return function(){ ro.disconnect(); }; },[ref]); return sRef; };
+    const useHalf=(ref)=>{ const h=useRef(0); useEffect(function(){ function upd(){ if(ref.current) h.current=ref.current.offsetWidth/2; } const ro=new ResizeObserver(upd); if(ref.current) ro.observe(ref.current); upd(); return function(){ ro.disconnect(); }; },[ref]); return h; };
+
+    // ===== Reusable controls =====
+    function DifficultyCard(props){
+      var lvl=props.lvl, setLvl=props.setLvl, apply=props.apply, title=props.title;
+      return (
+        <div className="card" style={{gridColumn:'span 2'}}>
+          {title ? <div className="ghost">{title}</div> : null}
+          <div className="ghost">Sværhedsgrad: {lvl}</div>
+          <input type="range" min={1} max={10} step={1} value={lvl}
+            onChange={function(e){ var v=parseInt(e.target.value,10); setLvl(v); if(apply) apply(v); }}/>
+          <div className="hstack" style={{marginTop:6}}>
+            <button className="btn" onClick={function(){ var v=Math.max(1,lvl-1); setLvl(v); if(apply) apply(v); }}>Lettere</button>
+            <button className="btn" onClick={function(){ var v=Math.min(10,lvl+1); setLvl(v); if(apply) apply(v); }}>Sværere</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ===== Exercises =====
+    function HartChart({ onRecord, seconds, chan, mode }){
+      const [periodMs,setPeriodMs]=useState(1800);
+      const [nearScale,setNearScale]=useState(1.35);
+      const [farScale,setFarScale]=useState(0.75);
+      const [sep,setSep]=useState(6);
+      const [idx,setIdx]=useState(0);
+      const [phase,setPhase]=useState('far');
+      const [clears,setClears]=useState(0);
+      const [lvl,setLvl]=useState(5);
+      const [outlinePx,setOutlinePx]=useState(1);
+
+      const letters='ABCDEFGHJKLMNPQRSTUVWXYZ';
+      const [grid,setGrid]=useState(function(){ return Array.from({length:25},function(){ return letters[Math.floor(Math.random()*letters.length)];});});
+      useEffect(function(){ const id=setInterval(function(){ setPhase(function(p){ return p==='far'?'near':'far'; }); setIdx(function(i){ return (i+1)%25; }); }, periodMs); return function(){ clearInterval(id); }; },[periodMs]);
+
+      function applyLvl(L){
+        setPeriodMs( Math.round(2400 - (L-1)*140) ); // 2400..1000
+        setSep( Math.round(2 + (L-1)*1) ); // 2..11
+        setOutlinePx( L>=7 ? 2 : 1 );
+      }
+      useEffect(function(){ applyLvl(lvl); },[]);
+
+      const activeScale = phase==='near'? nearScale : farScale;
+      function handleClear(){ setClears(function(c){ return c+1; }); if(onRecord) onRecord({type:'Hart@clear', idx:idx, phase:phase, ts:Date.now()}); }
+
+      function outline(px){
+        if(px<=0) return 'none';
+        return [
+          (-px)+'px 0 0 #000', (px)+'px 0 0 #000',
+          '0 '+(-px)+'px 0 #000', '0 '+(px)+'px 0 #000',
+          '-1px -1px 0 #000','1px -1px 0 #000','-1px 1px 0 #000','1px 1px 0 #000'
+        ].join(',');
+      }
+
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">Hart-Chart (Near ↔ Far)</div>
+            <div className="sub">Fokuser på markeret bogstav. Klik for "Klar". Brug separation for 3D-effekt.</div>
+          </div>
+
+          <div className="stage center" onClick={handleClear} style={{background:'#000'}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(5, minmax(0,1fr))',gap:'clamp(6px,1.2vw,12px)',transform:'scale('+activeScale+')'}}>
+              {grid.map(function(ch,i){
+                return (
+                  <div key={i} style={{position:'relative',width:'clamp(28px,5vw,56px)',height:'clamp(28px,5vw,56px)',borderRadius:10,display:'grid',placeItems:'center',overflow:'hidden',border:i===idx?'1px solid #555':'none',background:i===idx?'#1a1a1a':'transparent'}}>
+                    <span style={{color:eyeColor(mode,'red'),position:'absolute',textShadow:outline(outlinePx),transform:'translateX('+(-sep)+'px)',opacity:(chan.red||1)}}>{ch}</span>
+                    <span style={{color:eyeColor(mode,'other'),position:'absolute',textShadow:outline(outlinePx),transform:'translateX('+sep+'px)',opacity:(chan.green||0.8)}}>{ch}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="control-grid">
+            <DifficultyCard lvl={lvl} setLvl={setLvl} apply={applyLvl} title="Styring"/>
+            <div className="card"><div className="ghost">Nær (str.): {nearScale.toFixed(2)}×</div><input type="range" min={1.1} max={1.8} step={0.01} value={nearScale} onChange={function(e){setNearScale(parseFloat(e.target.value));}}/></div>
+            <div className="card"><div className="ghost">Fjern (str.): {farScale.toFixed(2)}×</div><input type="range" min={0.6} max={1.0} step={0.01} value={farScale} onChange={function(e){setFarScale(parseFloat(e.target.value));}}/></div>
+            <div className="card"><div className="ghost">Separation: {sep}px</div><input type="range" min={1} max={14} step={1} value={sep} onChange={function(e){setSep(parseInt(e.target.value,10));}}/></div>
+            <div className="card"><div className="ghost">Outline: {outlinePx}px</div><input type="range" min={0} max={3} step={1} value={outlinePx} onChange={function(e){setOutlinePx(parseInt(e.target.value,10));}}/></div>
+            <button className="btn" onClick={function(){ setGrid(Array.from({length:25},function(){return letters[Math.floor(Math.random()*letters.length)];})); }}>Ny tavle</button>
+          </div>
+
+          <div className="ghost">Klare: {clears} • Tid tilbage: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function FigureEightPursuit({ onRecord, seconds, chan, mode }){
+      const containerRef=useRef(null); const ballRef=useRef(null);
+      const size=useSize(containerRef); const half=useHalf(ballRef);
+      const [periodSec,setPeriodSec]=useState(6); const [amp,setAmp]=useState(0.36); const [dir,setDir]=useState(1);
+      const [lvl,setLvl]=useState(5);
+      const [running,setRunning]=useState(true);
+
+      // auto farveskift & retningsskift halvvejs
+      const initSecRef=useRef(null);
+      useEffect(function(){ if(initSecRef.current==null) initSecRef.current=seconds; },[]);
+      const halfPoint = initSecRef.current ? initSecRef.current/2 : 0;
+      const activeEye = (seconds <= halfPoint) ? 'other' : 'red';
+
+      useEffect(function(){
+        if(initSecRef.current && Math.abs(seconds - halfPoint) < 0.05){ setDir(function(d){return -d;}); }
+      },[seconds]);
+
+      // Eye isolation (Begge / Kun R / Kun G|C|B)
+      const [iso,setIso]=useState('both'); // 'both'|'R'|'O'
+      function eyeAlpha(target){
+        if(target==='red'){
+          return iso==='O' ? 0 : (chan.red||1);
+        } else {
+          return iso==='R' ? 0 : (chan.green||0.8);
+        }
+      }
+
+      const t0Ref=useRef(null); const rafRef=useRef(null);
+      useEffect(function(){
+        t0Ref.current=performance.now();
+        function loop(){
+          if(!running){ rafRef.current=requestAnimationFrame(loop); return; }
+          var now=performance.now();
+          var t=((now-t0Ref.current)/1000)*(2*Math.PI/periodSec)*dir;
+          var x=Math.sin(t); var y=0.5*Math.sin(2*t);
+          var ball=ballRef.current; var s=size.current.min*amp; var cx=size.current.cx, cy=size.current.cy;
+          if(ball && s){
+            var px=cx + x*s - half.current;
+            var py=cy + y*s - half.current;
+            ball.style.transform = 'translate3d('+px+'px,'+py+'px,0)';
+          }
+          rafRef.current=requestAnimationFrame(loop);
+        }
+        rafRef.current=requestAnimationFrame(loop);
+        return function(){ cancelAnimationFrame(rafRef.current); };
+      },[periodSec,amp,dir,running]);
+
+      function handleClear(){ if(onRecord) onRecord({ type:'Figure8@mark', eye:activeEye, ts:Date.now() }); }
+      function applyLvl(L){ setPeriodSec( Math.max(3, 9 - (L-1)*0.6) ); setAmp( 0.24 + (L-1)*0.02 ); }
+      useEffect(function(){ applyLvl(lvl); },[]);
+
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">8-taller (samsyn & pursuit)</div>
+            <div className="sub">Farven og retningen skifter automatisk halvvejs i øvelsen. Klik for "Klar".</div>
+          </div>
+
+          <div ref={containerRef} className="stage" onClick={handleClear} style={{background:'#000',position:'relative'}}>
+            <div ref={ballRef} className="ball" aria-label="kugle">
+              <div style={{ position:'absolute', inset:0, borderRadius:'9999px', background:eyeColor(mode,'red'), opacity: eyeAlpha('red') }}></div>
+              <div style={{ position:'absolute', inset:0, borderRadius:'9999px', background:eyeColor(mode,'other'), opacity: eyeAlpha('other') }}></div>
+            </div>
+          </div>
+
+          <div className="control-grid">
+            <DifficultyCard lvl={lvl} setLvl={setLvl} apply={applyLvl} title="Styring"/>
+            <div className="card"><div className="ghost">Periode: {periodSec.toFixed(1)} s</div><input type="range" min={3} max={12} step={0.5} value={periodSec} onChange={function(e){setPeriodSec(parseFloat(e.target.value));}}/></div>
+            <div className="card"><div className="ghost">Størrelse: {(amp*100).toFixed(0)}%</div><input type="range" min={0.2} max={0.5} step={0.02} value={amp} onChange={function(e){setAmp(parseFloat(e.target.value));}}/></div>
+            <div className="card">
+              <div className="ghost">Øje-isolation</div>
+              <div className="iso">
+                <button className={'btn '+(iso==='both'?'btn--primary':'')} onClick={function(){setIso('both');}}>Begge</button>
+                <button className={'btn '+(iso==='R'?'btn--primary':'')} onClick={function(){setIso('R');}}>Kun R</button>
+                <button className={'btn '+(iso==='O'?'btn--primary':'')} onClick={function(){setIso('O');}}>Kun { (mode==='RG'?'G':(mode==='RC'?'C':'B')) }</button>
+              </div>
+              <div className="tiny" style={{marginTop:6}}>Tip: Brug isolation ved tydelig farvelækage.</div>
+            </div>
+            <div className="hstack"><button className="btn" onClick={function(){ setDir(function(d){return -d;}); }}>Skift retning nu</button></div>
+            <button className="btn btn--primary" onClick={handleClear}>Klar</button>
+          </div>
+
+          <div className="ghost">Tid tilbage: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function AccommodationRock({ onRecord, seconds, chan, mode }){
+      const [periodMs,setPeriodMs]=useState(2500); const [nearScale,setNearScale]=useState(1.4); const [farScale,setFarScale]=useState(0.8); const [phase,setPhase]=useState(0); const [clears,setClears]=useState(0); const [lvl,setLvl]=useState(5);
+      const [eye,setEye]=useState('red');
+      useEffect(function(){
+        const id=setInterval(function(){
+          setPhase(function(p){ return p===0?1:0; });
+          setEye(Math.random()<0.5? 'red' : 'other');
+        },periodMs);
+        return function(){ clearInterval(id); };
+      },[periodMs]);
+      function handleClear(){ setClears(function(c){return c+1;}); if(onRecord) onRecord({ type:'AccommodationRock@clear', clears:clears+1, phase:phase, eye:eye, ts:Date.now() }); }
+      const color = eye==='red'? eyeRGBA(mode,'red',(chan.red||1)) : eyeRGBA(mode,'other',(chan.green||0.8));
+      const scale=phase===0? nearScale:farScale;
+      function applyLvl(L){ setPeriodMs(Math.round(3600 - (L-1)*300)); setNearScale(1.10 + (L-1)*0.11); setFarScale(Math.max(0.6, 0.9 - (L-1)*0.03)); }
+      useEffect(function(){ applyLvl(lvl); },[]);
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">Akkommodations-rock (mono)</div>
+            <div className="sub">Øje randomiseres ved hvert skift (R/ {mode==='RG'?'G':(mode==='RC'?'C':'B')}). Klik "Klar" når skarpt.</div>
+          </div>
+          <div className="stage center" onClick={handleClear} style={{background:'#000'}}>
+            <div style={{ fontSize:'clamp(32px,10vw,120px)', fontWeight:900, letterSpacing:'0.05em', transform:'scale('+scale+')', color:color }}>
+              FOKUS
+            </div>
+          </div>
+          <div className="control-grid">
+            <DifficultyCard lvl={lvl} setLvl={setLvl} apply={applyLvl} title="Styring"/>
+            <div className="card"><div className="ghost">Skifte-interval: {(periodMs/1000).toFixed(1)} s</div><input type="range" min={1200} max={5000} step={100} value={periodMs} onChange={function(e){setPeriodMs(parseInt(e.target.value,10));}}/></div>
+            <div className="card"><div className="ghost">Nær (str.): {nearScale.toFixed(2)}×</div><input type="range" min={1.0} max={2.2} step={0.01} value={nearScale} onChange={function(e){setNearScale(parseFloat(e.target.value));}}/></div>
+            <div className="card"><div className="ghost">Fjern (str.): {farScale.toFixed(2)}×</div><input type="range" min={0.6} max={1.0} step={0.01} value={farScale} onChange={function(e){setFarScale(parseFloat(e.target.value));}}/></div>
+            <button className="btn btn--primary" onClick={handleClear}>Klar</button>
+          </div>
+          <div className="ghost">Klare: {clears} • Tid tilbage: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function DeaccommodationDrill({ onRecord, seconds, chan, mode }){
+      const [nearHoldMs,setNearHoldMs]=useState(1400); const [farHoldMs,setFarHoldMs]=useState(400); const [nearScale,setNearScale]=useState(1.5); const [farScale,setFarScale]=useState(0.76); const [phase,setPhase]=useState('near'); const [tStart,setTStart]=useState(null); const [rts,setRTs]=useState([]); const [lvl,setLvl]=useState(5);
+      useEffect(function(){
+        var timer;
+        if(phase==='near'){ timer=setTimeout(function(){ setPhase('far-wait'); setTStart(performance.now()); },nearHoldMs); }
+        else if(phase==='far-hold'){ timer=setTimeout(function(){ setPhase('near'); }, farHoldMs); }
+        return function(){ clearTimeout(timer); };
+      },[phase,nearHoldMs,farHoldMs]);
+      function handleClear(){
+        if(phase==='far-wait' && tStart){
+          var rt=performance.now()-tStart;
+          setRTs(function(arr){
+            var next=arr.concat([rt]);
+            if(onRecord) onRecord({ type:'DeaccomRT', ms:Math.round(rt), ts:Date.now() });
+            return next;
+          });
+          setPhase('far-hold');
+          setTStart(null);
+        }
+      }
+      var mean=rts.length? (rts.reduce(function(a,b){return a+b;},0)/rts.length):0;
+      var sd=rts.length>1? Math.sqrt(rts.reduce(function(s,x){ return s+Math.pow(x-mean,2); },0)/(rts.length-1)):0;
+      var scale=phase==='near'? nearScale:farScale;
+      function applyLvl(L){ setNearHoldMs( Math.round(2200 - (L-1)*160) ); setNearScale( 1.10 + (L-1)*0.07 ); setFarScale( parseFloat((0.92 - (L-1)*0.03).toFixed(2)) ); }
+      useEffect(function(){ applyLvl(lvl); },[]);
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">Deakkom (N→F) — reaktionstid</div>
+            <div className="sub">Se skarpt på nær. Når målet går til fjern, klik "Klar" så snart det er skarpt.</div>
+          </div>
+          <div className="stage center" onClick={handleClear} style={{background:'#000'}}>
+            <div style={{ fontSize:'clamp(32px,10vw,120px)', fontWeight:900, letterSpacing:'0.05em', transform:'scale('+scale+')' }}>
+              <span style={{ color:eyeColor(mode,'red'), opacity:(chan.red||1) }}>FO</span>
+              <span style={{ color:eyeColor(mode,'other'), opacity:(chan.green||0.8) }}>KUS</span>
+            </div>
+          </div>
+          <div className="control-grid">
+            <DifficultyCard lvl={lvl} setLvl={setLvl} apply={applyLvl} title="Styring"/>
+            <div className="card"><div className="ghost">Nær-hold: {(nearHoldMs/1000).toFixed(1)} s</div><input type="range" min={800} max={3000} step={100} value={nearHoldMs} onChange={function(e){setNearHoldMs(parseInt(e.target.value,10));}}/></div>
+            <div className="card"><div className="ghost">Nær (str.): {nearScale.toFixed(2)}×</div><input type="range" min={1.1} max={2.2} step={0.01} value={nearScale} onChange={function(e){setNearScale(parseFloat(e.target.value));}}/></div>
+            <div className="card"><div className="ghost">Fjern (str.): {farScale.toFixed(2)}×</div><input type="range" min={0.6} max={1.0} step={0.01} value={farScale} onChange={function(e){setFarScale(parseFloat(e.target.value));}}/></div>
+            <button className="btn btn--primary" onClick={handleClear}>Klar (N→F)</button>
+          </div>
+          <div className="ghost">Målinger: {rts.length} • Gennemsnit: {mean? Math.round(mean)+' ms':'–'} • SD: {sd? Math.round(sd)+' ms':'–'} • Tid: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function DeaccomStarfield({ onRecord, seconds, chan, mode }){
+      const containerRef=useRef(null); const ballRef=useRef(null); const starsCanvasRef=useRef(null); const size=useSize(containerRef); const half=useHalf(ballRef);
+      const [nearHoldMs,setNearHoldMs]=useState(900); const [transMs,setTransMs]=useState(1800); const [farHoldMs,setFarHoldMs]=useState(500); const [dirNF,setDirNF]=useState(true); const [starSpacing,setStarSpacing]=useState(2); const [depth,setDepth]=useState(1.2); const [lvl,setLvl]=useState(5);
+      const tStartRef=useRef(null); const rafRef=useRef(null);
+
+      useEffect(function(){
+        function redraw(){
+          var cnv=starsCanvasRef.current, el=containerRef.current; if(!cnv||!el) return;
+          var dpr=Math.max(1,window.devicePixelRatio||1); var w=el.clientWidth,h=el.clientHeight;
+          cnv.width=Math.max(1,Math.round(w*dpr)); cnv.height=Math.max(1,Math.round(h*dpr)); cnv.style.width=w+'px'; cnv.style.height=h+'px';
+          var ctx=cnv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+          var count=Math.max(20,Math.round(160/(starSpacing*starSpacing)));
+          for(var i=0;i<count;i++){ var x=Math.random()*w,y=Math.random()*h,r=Math.random()<0.1?1.5:1; ctx.globalAlpha=0.35+Math.random()*0.55; ctx.fillStyle='#bbb'; ctx.fillRect(x,y,r,r);} 
+          ctx.globalAlpha=1;
+        }
+        redraw();
+        function onR(){redraw();}
+        window.addEventListener('resize',onR,{passive:true});
+        return function(){ window.removeEventListener('resize',onR); };
+      },[starSpacing]);
+
+      const [phase,setPhase]=useState('near');
+      useEffect(function(){
+        var timer;
+        if(phase==='near'){ timer=setTimeout(function(){ setPhase('trans'); }, nearHoldMs);} 
+        else if(phase==='far-hold'){ timer=setTimeout(function(){ setPhase('near'); }, farHoldMs);} 
+        return function(){ clearTimeout(timer); };
+      },[phase,nearHoldMs,farHoldMs]);
+
+      useEffect(function(){
+        if(phase!=='trans') return;
+        var t0=performance.now(); tStartRef.current=t0;
+        function loop(){
+          var now=performance.now(); var p=Math.min(1,(now-t0)/transMs);
+          var ball=ballRef.current;
+          if(ball){
+            var base=size.current.min||0;
+            var nearDisp=base*0.06*depth, farDisp=base*0.008*depth;
+            var nearScale=1.7, farScale=0.85;
+            var q=dirNF? p : (1-p);
+            var disp=nearDisp*(1-q)+farDisp*q;
+            var scl=nearScale*(1-q)+farScale*q;
+            var cx=size.current.cx, cy=size.current.cy; var px=cx-half.current, py=cy-half.current;
+            ball.style.transform='translate3d('+px+'px,'+py+'px,0) scale('+scl+')';
+            var red=ball.querySelector('.b-red'), other=ball.querySelector('.b-other');
+            if(red&&other){
+              red.style.transform='translate3d('+(-disp)+'px,0,0)';
+              other.style.transform='translate3d('+(disp)+'px,0,0)';
+            }
+          }
+          if(p<1){ rafRef.current=requestAnimationFrame(loop);} else { setPhase('far-hold'); }
+        }
+        rafRef.current=requestAnimationFrame(loop);
+        return function(){ cancelAnimationFrame(rafRef.current); };
+      },[phase,transMs,dirNF,depth,size]);
+
+      function handleClear(){
+        if(phase==='trans' && tStartRef.current){
+          var rt=performance.now()-tStartRef.current;
+          var success= rt <= (0.7*transMs);
+          var pts=Math.max(10, Math.round(100*depth*(transMs/Math.max(350,rt))));
+          if(onRecord) onRecord({ type:'StarRT', ms:Math.round(rt), dir:dirNF?'N→F':'F→N', trans:transMs, depth:depth, spacing:starSpacing, success:success, points:pts, ts:Date.now() });
+          setPhase('far-hold');
+        }
+      }
+      function applyLvl(L){ setTransMs( Math.round(2600 - (L-1)*180) ); setDepth( parseFloat((0.9 + (L-1)*0.08).toFixed(2)) ); }
+      useEffect(function(){ applyLvl(lvl); },[]);
+
+      return (
+        <div className="section" style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div className="center" style={{flexDirection:'column',gap:6}}>
+            <div className="title">Deakkom 3D — Starfield</div>
+            <div className="sub">Klik "Klar" nær slutningen af N→F-overgangen. Sværhedsgrad og kontroller justerer tempo/dybde.</div>
+          </div>
+          <div ref={containerRef} className="stage" onClick={handleClear} style={{background:'#000',position:'relative'}}>
+            <canvas ref={starsCanvasRef} style={{ position:'absolute', inset:0 }}></canvas>
+            <div ref={ballRef} className="ball" aria-label="mål" style={{ position:'absolute' }}>
+              <div className="b-red" style={{ position:'absolute', inset:0, borderRadius:'9999px', background:eyeColor(mode,'red'), opacity:(chan.red||1) }}></div>
+              <div className="b-other" style={{ position:'absolute', inset:0, borderRadius:'9999px', background:eyeColor(mode,'other'), opacity:(chan.green||0.8) }}></div>
+              <div style={{ position:'absolute', inset:0, borderRadius:'9999px', border:'2px solid #000', opacity:0.45 }}></div>
+            </div>
+          </div>
+          <div className="control-grid">
+            <DifficultyCard lvl={lvl} setLvl={setLvl} apply={applyLvl} title="Styring"/>
+            <div className="card"><div className="ghost">Nær-hold: {(nearHoldMs/1000).toFixed(1)} s</div><input type="range" min={600} max={2000} step={100} value={nearHoldMs} onChange={function(e){ setNearHoldMs(parseInt(e.target.value,10)); }}/></div>
+            <div className="card"><div className="ghost">Overgang: {(transMs/1000).toFixed(1)} s</div><input type="range" min={800} max={4000} step={100} value={transMs} onChange={function(e){ setTransMs(parseInt(e.target.value,10)); }}/></div>
+            <div className="card"><div className="ghost">Retning</div><button className="btn" onClick={function(){ setDirNF(function(v){return !v;}); }}>{dirNF? 'N→F (deakkom)':'F→N (akkom)'}</button></div>
+            <div className="card"><div className="ghost">Stjerneafstand</div><input type="range" min={1} max={5} step={1} value={starSpacing} onChange={function(e){ setStarSpacing(parseInt(e.target.value,10)); }}/></div>
+            <div className="card"><div className="ghost">Dybde</div><input type="range" min={0.8} max={1.6} step={0.05} value={depth} onChange={function(e){ setDepth(parseFloat(e.target.value)); }}/></div>
+            <button className="btn btn--primary" onClick={handleClear}>Klar</button>
+          </div>
+          <div className="ghost">Tid tilbage: {fmtMMSS(seconds)}</div>
+        </div>
+      );
+    }
+
+    function Cooldown(){
+      return (
+        <div className="stage center" style={{background:'#000'}}>
+          <div>
+            <div className="title" style={{marginBottom:6}}>Afslapning</div>
+            <div className="sub">Luk øjnene 20–30 sek. “Palming” kan anvendes. Rolige vejrtrækninger.</div>
+          </div>
+        </div>
+      );
+    }
+
+    function makeBaseAll(){
+      return [
+        { key:'deaccom_star', title:'Deakkom 3D — Starfield', minutes:1.5, Component: DeaccomStarfield },
+        { key:'deaccom_rt', title:'Deakkom (N→F) — RT', minutes:1.2, Component: DeaccommodationDrill },
+        { key:'hart', title:'Hart-Chart (Near↔Far)', minutes:1.2, Component: HartChart },
+        { key:'figure8', title:'8-taller (samsyn & pursuit)', minutes:1.2, Component: FigureEightPursuit },
+        { key:'accom_rock', title:'Akkom-rock (mono)', minutes:1.2, Component: AccommodationRock },
+        { key:'cooldown', title:'Afslapning', minutes:0.8, Component: Cooldown },
+      ];
+    }
+
+    function Landing({ selectedProgram, setSelectedProgram, onNext }){
+      return (
+        <div className="stage center" style={{border:'none'}}>
+          <div className="center" style={{flexDirection:'column',gap:14}}>
+            <div className="title">Velkommen</div>
+            <div className="sub">Vælg program (Auto anbefales). Brug anaglyf rød/grøn brille.</div>
+            <div className="hstack">
+              <span className="ghost">Program:</span>
+              <button className={'btn '+(selectedProgram==='auto'?'btn--primary':'')} onClick={function(){ setSelectedProgram('auto'); }}>Auto</button>
+              <button className={'btn '+(selectedProgram==='all'?'btn--primary':'')} onClick={function(){ setSelectedProgram('all'); }}>All-around</button>
+              <button className={'btn '+(selectedProgram==='deaccom'?'btn--primary':'')} onClick={function(){ setSelectedProgram('deaccom'); }}>Deakkom-fokus</button>
+            </div>
+            <button className="btn btn--primary" onClick={onNext}>Fortsæt til kalibrering</button>
+            <div className="ghost">Tip: Slå True Tone / Nat-lys fra og sænk lysstyrke 10–20%.</div>
+          </div>
+        </div>
+      );
+    }
+
+    function Calibration({ onBack, onStart, plan, chan, setChan, mode, setMode }){
+      var planTitles = plan.map(function(p){return p.title;}).join(' → ');
+      return (
+        <div className="section center" style={{minHeight:'70vh'}}>
+          <div className="card" style={{maxWidth:860,width:'min(92vw,860px)'}}>
+            <div className="title" style={{marginBottom:6}}>Farvekalibrering</div>
+            <div className="sub" style={{marginBottom:12}}>Du bør kun kunne se <b>R</b> med det røde øje og <b>{mode==='RG'?'G':(mode==='RC'?'C':'B')}</b> med det grønne. Dæmp kanalerne herunder, indtil modsat øje ikke lækker.</div>
+            <div className="center" style={{background:'#0b0b0b',border:'1px solid #262626',borderRadius:12, width:'100%', aspectRatio:'16/6'}}>
+              <div style={{ fontSize:'clamp(36px,9vw,110px)', fontWeight:900, letterSpacing:'0.2em' }}>
+                <span style={{ color:eyeColor(mode,'red'), opacity:(chan.red||1) }}>R</span>
+                <span style={{ margin:'0 2rem' }}></span>
+                <span style={{ color:eyeColor(mode,'other'), opacity:(chan.green||0.8) }}>{mode==='RG'?'G':(mode==='RC'?'C':'B')}</span>
+              </div>
+            </div>
+            <div className="control-grid" style={{gridTemplateColumns:'repeat(2,minmax(0,1fr))',marginTop:12}}>
+              <div className="card"><div className="ghost">Rød kanalstyrke: {Number(chan.red||0).toFixed(2)}</div><input type="range" min={0} max={1.2} step={0.02} value={chan.red||0} onChange={function(e){ setChan({ red: parseFloat(e.target.value), green: chan.green, gHue:chan.gHue, gLum:chan.gLum, gSat:chan.gSat, gCon:chan.gCon, subpix:chan.subpix, edgePx:chan.edgePx }); }}/></div>
+              <div className="card"><div className="ghost">{mode==='RG'?'Grøn':'Anden'} kanalstyrke: {Number(chan.green||0).toFixed(2)}</div><input type="range" min={0} max={1.2} step={0.02} value={chan.green||0} onChange={function(e){ setChan({ red: chan.red, green: parseFloat(e.target.value), gHue:chan.gHue, gLum:chan.gLum, gSat:chan.gSat, gCon:chan.gCon, subpix:chan.subpix, edgePx:chan.edgePx }); }}/></div>
+            </div>
+            <div className="hstack" style={{justifyContent:'space-between',marginTop:12}}>
+              <div className="pillset">
+                <div className={'pill '+(mode==='RG'?'pill--on':'')} onClick={function(){setMode('RG');}}>R/G</div>
+                <div className={'pill '+(mode==='RC'?'pill--on':'')} onClick={function(){setMode('RC');}}>R/C</div>
+                <div className={'pill '+(mode==='RB'?'pill--on':'')} onClick={function(){setMode('RB');}}>R/B</div>
+              </div>
+              <button className="btn btn--primary" onClick={onStart}>Start dagens program</button>
+            </div>
+            <div className="ghost" style={{marginTop:10}}>Dagens program: {planTitles}</div>
+            <div className="hstack" style={{justifyContent:'space-between',marginTop:12}}>
+              <button className="btn" onClick={onBack}>Tilbage</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function Summary({ log, onRestart }){
+      var today=TODAY();
+      var star=(log && log.results? log.results: []).filter(function(r){ return r.type==='StarRT' && r.dir==='N→F';});
+      var ms=star.map(function(r){ return r.ms; }).filter(function(x){return !!x || x===0;}).sort(function(a,b){return a-b;});
+      var median = ms.length? (ms.length%2? ms[(ms.length-1)/2] : Math.round((ms[ms.length/2-1]+ms[ms.length/2])/2)) : null;
+      var succ=star.filter(function(r){return r.success;}).length; var tot=star.length; var rate=tot? Math.round(100*succ/tot):null; var bestDepth=star.reduce(function(m,r){ return Math.max(m, r.depth||0); },0);
+      return (
+        <div className="section center" style={{minHeight:'60vh'}}>
+          <div className="center" style={{flexDirection:'column',gap:12}}>
+            <div className="title">Godt arbejde!</div>
+            <div className="hstack">
+              <div className="card">Median N→F RT<br/><b style={{fontSize:'20px'}}>{median!=null? (median+' ms'):'–'}</b></div>
+              <div className="card">Success-rate<br/><b style={{fontSize:'20px'}}>{rate!=null? (rate+'%'):'–'}</b></div>
+              <div className="card">Max dybde<br/><b style={{fontSize:'20px'}}>{bestDepth? bestDepth.toFixed(2):'–'}</b></div>
+            </div>
+            <div className="ghost">Dagens session ({today}) er gemt lokalt.</div>
+            <button className="btn" onClick={onRestart}>Start igen</button>
+          </div>
+        </div>
+      );
+    }
+
+    function App(){
+      const { beep }=useBeep();
+      const [selectedProgram,setSelectedProgram]=useState('auto');
+      const [plan,setPlan]=useState(makeBaseAll());
+      const [started,setStarted]=useState(false); const [paused,setPaused]=useState(false); const [step,setStep]=useState(0); const [idx,setIdx]=useState(0);
+      const [mode,setMode]=useState(ensureMode(store.get('svt_mode','RG')));
+      const [chanRaw,setChanRaw]=useState(ensureChan(store.get('svt_chan', DEFAULT_CHAN)));
+      const chan=ensureChan(chanRaw);
+      useEffect(function(){ store.set('svt_chan', chan); },[chan]);
+      useEffect(function(){ store.set('svt_mode', mode); },[mode]);
+      const [log,setLog]=useState(function(){ return store.get(TODAY_KEY(),{ notes:[], results:[], program:selectedProgram, points:0 }); });
+
+      const active=plan[idx]; const totalSeconds=((active && active.minutes) ? active.minutes : 0)*60;
+      const cd = useCountdown(totalSeconds,{ isRunning: (started && !paused && idx<plan.length && step===2), onComplete: function(){ beep(660,150); nextExercise(); } });
+      const remaining = cd.remaining;
+      const reset = cd.reset;
+
+      const elapsedInExercise=active? (active.minutes*60-remaining):0;
+      const totalPlanSec=plan.reduce(function(s,p){ return s+p.minutes*60; },0);
+      const totalElapsedSec=plan.slice(0,idx).reduce(function(s,p){ return s+p.minutes*60; },0)+elapsedInExercise;
+
+      function nextExercise(){
+        setIdx(function(i){
+          var ni=i+1;
+          if(ni>=plan.length){ setStep(3); setStarted(false); setPaused(false); return i; }
+          setTimeout(function(){ reset(plan[ni].minutes*60); },0);
+          return ni;
+        });
+      }
+      function startPlan(){
+        setStep(2); setStarted(true); setPaused(false); setIdx(0);
+        reset(plan[0].minutes*60); beep(880,180);
+        setLog(function(L){ return {notes:L.notes||[], results:L.results||[], program:selectedProgram, points:L.points||0}; });
+      }
+      function record(r){
+        setLog(function(L){
+          var item = { idx: idx, exercise: (plan[idx] && plan[idx].key), program: selectedProgram };
+          if (r && typeof r === 'object') {
+            for (var k in r) { if (Object.prototype.hasOwnProperty.call(r, k)) item[k] = r[k]; }
+          }
+          var results = L && L.results ? L.results.slice() : [];
+          results.push(item);
+          var next = {
+            notes: (L && L.notes) ? L.notes : [],
+            results: results,
+            program: (L && L.program) ? L.program : selectedProgram,
+            points: (L && L.points) ? L.points : 0
+          };
+          store.set(TODAY_KEY(), next);
+          return next;
+        });
+      }
+
+      return (
+        <div className="app">
+          <div className="header">
+            <div className="brand"><div className="brand-logo"></div><div className="brand-meta"><div className="brand-title">V{BUILD} — Vanilla</div><div className="brand-sub">HTML • ~10 min/dag</div></div></div>
+            <div className="toolbar">
+              <div className="chan">
+                <label>R</label><input type="range" min={0} max={1.2} step={0.02} value={chan.red||0} onChange={function(e){ setChanRaw({ red:parseFloat(e.target.value), green:chan.green, gHue:chan.gHue, gLum:chan.gLum, gSat:chan.gSat, gCon:chan.gCon, subpix:chan.subpix, edgePx:chan.edgePx }); }}/>
+                <label>{mode==='RG'?'G':(mode==='RC'?'C':'B')}</label><input type="range" min={0} max={1.2} step={0.02} value={chan.green||0} onChange={function(e){ setChanRaw({ red:chan.red, green:parseFloat(e.target.value), gHue:chan.gHue, gLum:chan.gLum, gSat:chan.gSat, gCon:chan.gCon, subpix:chan.subpix, edgePx:chan.edgePx }); }}/>
+              </div>
+              <div className="pillset">
+                <div className={'pill '+(mode==='RG'?'pill--on':'')} onClick={function(){setMode('RG');}}>R/G</div>
+                <div className={'pill '+(mode==='RC'?'pill--on':'')} onClick={function(){setMode('RC');}}>R/C</div>
+                <div className={'pill '+(mode==='RB'?'pill--on':'')} onClick={function(){setMode('RB');}}>R/B</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="container">
+            <div className="progress"><div className="progress-bar" style={{width:(100*totalElapsedSec/totalPlanSec)+'%'}}></div></div>
+            <div className="progress-meta"><span>Forløb: {fmtMMSS(totalElapsedSec)} / {fmtMMSS(totalPlanSec)}</span>{step===2 && active ? <span>Øvelse: {active.title} • {fmtMMSS(remaining)}</span> : null}</div>
+          </div>
+
+          <div className="main">
+            <div className="section">
+              {step===0 ? <Landing selectedProgram={selectedProgram} setSelectedProgram={setSelectedProgram} onNext={function(){ setStep(1); }} /> : null}
+              {step===1 ? <Calibration onBack={function(){ setStep(0); }} onStart={startPlan} plan={plan} chan={chan} setChan={setChanRaw} mode={mode} setMode={setMode} /> : null}
+              {step===2 && active ? (
+                <div style={{padding:0}}>
+                  {active.key==='deaccom_star' ? <DeaccomStarfield onRecord={record} seconds={remaining} chan={chan} mode={mode} /> : null}
+                  {active.key==='deaccom_rt' ? <DeaccommodationDrill onRecord={record} seconds={remaining} chan={chan} mode={mode} /> : null}
+                  {active.key==='hart' ? <HartChart onRecord={record} seconds={remaining} chan={chan} mode={mode} /> : null}
+                  {active.key==='figure8' ? <FigureEightPursuit onRecord={record} seconds={remaining} chan={chan} mode={mode} /> : null}
+                  {active.key==='accom_rock' ? <AccommodationRock onRecord={record} seconds={remaining} chan={chan} mode={mode} /> : null}
+                  {active.key==='cooldown' ? <Cooldown /> : null}
+                </div>
+              ) : null}
+              {step===3 ? <Summary log={store.get(TODAY_KEY(),{})} onRestart={function(){ setStep(1); }} /> : null}
+            </div>
+            <div className="footer">
+              <div className="hstack">
+                <button className="btn" onClick={function(){ setPaused(function(p){return !p;}); }} disabled={step!==2}>{paused? 'Fortsæt':'Pause'}</button>
+                <button className="btn" onClick={function(){ setIdx(function(i){ return Math.max(0,i-1); }); }} disabled={step!==2 || idx===0}>Tilbage</button>
+                <button className="btn" onClick={function(){ setIdx(function(i){ return Math.min(plan.length-1,i+1); }); }} disabled={step!==2}>Spring over</button>
+              </div>
+              <div className="ghost">Brug version: <b>V{BUILD}</b></div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App/></ErrorBoundary>);
+    setTimeout(function(){ var ok=!!document.getElementById('root'); if(!ok){ var box=document.getElementById('err'), p=document.getElementById('errtxt'); if(p) p.textContent='SMOKE: Root ikke fundet.'; if(box) box.style.display='grid'; } }, 50);
+  </script>
+</body>
+</html>
